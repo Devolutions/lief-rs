@@ -10,4 +10,5 @@ extern "C" {
     pub fn Binary_Build(this: Binary) -> c_uint;
     pub fn Binary_GetResourceManager(this: Binary) -> ResourceManager;
     pub fn ResourceManager_Free(this: ResourceManager);
+    pub fn SetRcData(this: ResourceManager, data: *mut u8, data_size: u32, resource_id: u32);
 }

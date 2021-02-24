@@ -23,7 +23,7 @@ using namespace LIEF;
 typedef struct Binary Binary;
 typedef struct ResourceManager ResourceManager;
 
-LIEF_SYS_STATUS DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id);
+void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id);
 
 extern "C"
 {
@@ -95,15 +95,15 @@ extern "C"
         delete resourceManager;
     }
 
-    LIEF_SYS_EXPORT unsigned int SetRcData(ResourceManager* _this, const uint8_t* data, uint32_t data_size, uint32_t resource_id) {
+    LIEF_SYS_EXPORT unsigned int SetRcData(ResourceManager* _this, const uint8_t* data, size_t data_size, uint32_t resource_id) {
         PE::ResourcesManager* resources_manager = reinterpret_cast<PE::ResourcesManager*>(_this);
 
         try
         {
             PE::ResourceNode &rc_data_root = resources_manager->get_node_type(PE::RESOURCE_TYPES::RCDATA);
 
-            if(DeleteRootNodeChilds(rc_data_root, resource_id) != LIEF_SYS_STATUS::OK)
-                return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_RCDATA_ERROR);
+            DeleteRootNodeChilds(rc_data_root, resource_id);
+
 
             PE::ResourceData rcdata_data_node;
             PE::ResourceDirectory rcdata_dir_node;
@@ -140,8 +140,7 @@ extern "C"
 
             std::u16string string = std::u16string(reinterpret_cast<char16_t const*>(string_data));
 
-            if(DeleteRootNodeChilds(string_table_root, resource_id % max_strings_count) !=  LIEF_SYS_STATUS::OK)
-                return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_STRING_ERROR);
+            DeleteRootNodeChilds(string_table_root, resource_id % max_strings_count);
 
             PE::ResourceData string_table_data_node;
             PE::ResourceDirectory string_table_dir_node;
@@ -175,9 +174,72 @@ extern "C"
 
         return static_cast<unsigned int>(LIEF_SYS_STATUS::OK);
     }
-}
 
-LIEF_SYS_STATUS DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id) {
+    LIEF_SYS_EXPORT unsigned int ReplaceIcon(ResourceManager* _this, uint8_t* data, size_t data_size) {
+        PE::ResourcesManager* resources_manager = reinterpret_cast<PE::ResourcesManager*>(_this);
+
+        try
+        {
+            const PE::pe_icon_header* icon_header = reinterpret_cast<const PE::pe_icon_header*>(data + sizeof(PE::pe_resource_icon_dir));
+            PE::ResourceIcon icon(icon_header);
+
+            std::vector<uint8_t> pixels = { data + icon_header->offset, data + icon_header->offset + icon_header->size };
+            icon.pixels(pixels);
+
+            PE::ResourceNode& icon_group_root = resources_manager->get_node_type(PE::RESOURCE_TYPES::GROUP_ICON);
+            PE::ResourceNode& icon_root = resources_manager->get_node_type(PE::RESOURCE_TYPES::ICON);
+
+            icon_group_root.sort_by_id();
+            for(PE::ResourceNode& grp_icon_dir_node: icon_group_root.childs()) {
+                grp_icon_dir_node.sort_by_id();
+
+                for(PE::ResourceNode& grp_icon_data_node: grp_icon_dir_node.childs()) {
+                    PE::ResourceData* icon_group_res_data = static_cast<PE::ResourceData*>(&grp_icon_data_node);
+
+                    std::vector<uint8_t> icon_group_content = icon_group_res_data->content();
+                    PE::pe_resource_icon_dir* icon_group_header = reinterpret_cast<PE::pe_resource_icon_dir*>(icon_group_content.data());
+
+                    for(size_t i = 0; i < icon_group_header->count; i++) {
+                        PE::pe_resource_icon_group* icon_header = reinterpret_cast<PE::pe_resource_icon_group*>(
+                                    icon_group_content.data() +
+                                    sizeof(PE::pe_resource_icon_dir) +
+                                    i * sizeof(PE::pe_resource_icon_group));
+
+                        if(icon_header != nullptr
+                            && icon_header->width == icon.width()
+                            && icon_header->height == icon.height())
+                        {
+                            icon_header->color_count = icon.color_count();
+                            icon_header->reserved = icon.reserved();
+                            icon_header->planes = icon.planes();
+                            icon_header->bit_count = icon.bit_count();
+                            icon_header->size = icon.size();
+
+                            icon.id(icon_header->ID);
+
+                            icon_root.delete_child(icon_header->ID);
+                            PE::ResourceDirectory icon_res_dir;
+                            icon_res_dir.id(icon.id());
+
+                            PE::ResourceData icon_res_data{ icon.pixels(), 0 };
+                            icon_res_data.id(static_cast<int>(icon.sublang()) << 10 | static_cast<int>(icon.lang()));
+
+                            icon_root.add_child(icon_res_dir);
+                            return static_cast<unsigned int>(LIEF_SYS_STATUS::OK);
+                        }
+                    }
+                }
+            }
+        }
+        catch(const std::exception& ex)
+        {
+            return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_ICON_ERROR);
+        }
+
+        return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_ICON_ERROR);
+    }
+}
+void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id) {
     auto childs = root.childs();
 
     auto&& dir_node = std::find_if(
@@ -188,13 +250,10 @@ LIEF_SYS_STATUS DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_i
             });
 
     if(dir_node == std::end(childs)) 
-        return LIEF_SYS_STATUS::OK;
+        return;
 
-
-    try
-    {
-        auto data_nodes = dir_node->childs();
-        std::for_each(
+    auto data_nodes = dir_node->childs();
+    std::for_each(
             std::begin(data_nodes),
             std::end(data_nodes),
             [&](const PE::ResourceNode& data_node)
@@ -202,12 +261,5 @@ LIEF_SYS_STATUS DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_i
                 dir_node->delete_child(data_node);
             });
 
-        root.delete_child(*dir_node);
-    }
-    catch(const std::exception& ex)
-    {
-        return LIEF_SYS_STATUS::DELETE_NODE_ERROR;
-    }
-
-    return LIEF_SYS_STATUS::OK;
+    root.delete_child(*dir_node);
 }

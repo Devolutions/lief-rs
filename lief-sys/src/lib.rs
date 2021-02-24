@@ -13,8 +13,9 @@ extern "C" {
     pub fn SetRcData(
         this: ResourceManager,
         data: *mut u8,
-        data_size: u32,
+        data_size: usize,
         resource_id: u32,
     ) -> c_uint;
     pub fn SetString(this: ResourceManager, string: *const u16, resource_id: u32) -> c_uint;
+    pub fn ReplaceIcon(this: ResourceManager, data: *const u8, data_size: usize) -> c_uint;
 }

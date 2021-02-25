@@ -7,12 +7,12 @@ pub type ResourceManager = *mut c_void;
 extern "C" {
     pub fn Binary_New(path: *const c_char) -> Binary;
     pub fn Binary_Free(this: Binary);
-    pub fn Binary_Build(this: Binary) -> c_uint;
+    pub fn Binary_Build(this: Binary, path: *const c_char) -> c_uint;
     pub fn Binary_GetResourceManager(this: Binary) -> ResourceManager;
     pub fn ResourceManager_Free(this: ResourceManager);
     pub fn SetRcData(
         this: ResourceManager,
-        data: *mut u8,
+        data: *const u8,
         data_size: usize,
         resource_id: u32,
     ) -> c_uint;

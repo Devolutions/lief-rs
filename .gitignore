@@ -1,5 +1,5 @@
 /target
 .idea/
-/Cargo.lock
+Cargo.lock
 /lief-sys/src/LIEF
 /lief-sys/Cargo.lock

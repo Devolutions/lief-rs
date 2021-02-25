@@ -12,10 +12,9 @@
 enum class LIEF_SYS_STATUS: unsigned  int {
     OK = 0,
     BUILD_ERROR,
-    SET_ICON_ERROR,
     SET_RCDATA_ERROR,
     SET_STRING_ERROR,
-    DELETE_NODE_ERROR
+    SET_ICON_ERROR
 };
 
 using namespace LIEF;
@@ -225,7 +224,6 @@ extern "C"
                             icon_res_data.id(static_cast<int>(icon.sublang()) << 10 | static_cast<int>(icon.lang()));
 
                             icon_root.add_child(icon_res_dir);
-                            return static_cast<unsigned int>(LIEF_SYS_STATUS::OK);
                         }
                     }
                 }
@@ -236,7 +234,7 @@ extern "C"
             return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_ICON_ERROR);
         }
 
-        return static_cast<unsigned int>(LIEF_SYS_STATUS::SET_ICON_ERROR);
+        return static_cast<unsigned int>(LIEF_SYS_STATUS::OK);
     }
 }
 void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id) {

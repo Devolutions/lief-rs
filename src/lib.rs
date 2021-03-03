@@ -46,7 +46,7 @@ pub enum LiefError {
     Other { description: String },
 }
 
-type LiefResult<T> = Result<T, LiefError>;
+pub type LiefResult<T> = Result<T, LiefError>;
 
 pub struct Binary {
     handle: lief::Binary,
@@ -195,7 +195,9 @@ impl ResourceManager {
                     description: format!("Failed to encode resized icon: {}", err),
                 })?;
 
-            let replace_result = unsafe { lief::ReplaceIcon(self.handle, resized_icon.as_ptr(), resized_icon.len()) };
+            let replace_result = unsafe {
+                lief::ReplaceIcon(self.handle, resized_icon.as_ptr(), resized_icon.len())
+            };
 
             match replace_result {
                 LIEF_SYS_OK => {}
@@ -214,7 +216,7 @@ impl ResourceManager {
             let icon_pointer = lief::GetIcon(self.handle, width, height, &mut pixels_data_len);
 
             if icon_pointer.is_null() || pixels_data_len == 0 {
-                 lief::DeallocateIcon(icon_pointer);
+                lief::DeallocateIcon(icon_pointer);
                 return Err(LiefError::GetIconError { width, height });
             }
 

@@ -1,0 +1,13 @@
+[package]
+name = "lief-sys"
+version = "0.1.0"
+authors = ["Alexandr Yusuk <aleksandr.yusuk@apriorit.com>"]
+edition = "2018"
+build = "build.rs"
+links = "LIEF_SYS"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+cmake = "0.1.45"
+

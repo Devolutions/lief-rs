@@ -1,0 +1,20 @@
+[package]
+name = "lief-rs"
+version = "0.1.0"
+authors = [ "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>" ]
+edition = "2018"
+
+[lib]
+name = "lief"
+path = "src/lib.rs"
+
+[dependencies]
+image = { version = "0.23.0", features = [ "ico" ] }
+lief-sys = { path = "lief-sys" }
+thiserror = "1.0.24"
+widestring = "0.4.3"
+
+[dev-dependencies]
+lazy_static = "1.4.0"
+tempfile = "3.2.0"
+uuid = { version = "0.8.2", features = [ "v4" ] }

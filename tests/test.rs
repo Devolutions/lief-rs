@@ -1,6 +1,6 @@
 use image::ImageOutputFormat;
 use lazy_static::lazy_static;
-use lib::Binary;
+use lief::Binary;
 use std::{path::PathBuf, str::FromStr};
 use tempfile::{tempdir, TempDir};
 use uuid::Uuid;

@@ -7,11 +7,21 @@ use std::{
 };
 
 use image::{codecs::ico::IcoDecoder, imageops::FilterType, DynamicImage, ImageOutputFormat};
+use picky::{
+    key::{self, PrivateKey},
+    pem::{self, Pem},
+    x509::{
+        pkcs7::{self, Pkcs7},
+        wincert::WinCertificateError,
+    },
+};
+use picky_asn1_x509::SHAVariant;
 use thiserror::Error;
 use widestring::U16CString;
 
 use lief_sys as lief;
 use lief_sys::CResult;
+use std::io::Cursor;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -19,6 +29,8 @@ const ICONS_SIZES: [u32; 10] = [256, 128, 96, 64, 48, 40, 32, 24, 20, 16];
 
 #[derive(Debug, Error)]
 pub enum LiefError {
+    #[error(transparent)]
+    AuthenticodeError(#[from] AuthenticodeError),
     #[error("Failed to parse Binary file({0:?})")]
     ParseFileError(Option<String>),
     #[error("Failed to build Binary file({0:?})")]
@@ -47,6 +59,22 @@ pub enum LiefError {
     Other { description: String },
     #[error("{0}")]
     CError(String),
+}
+
+#[derive(Debug, Error)]
+pub enum AuthenticodeError {
+    #[error("Failed to get authenticode file hash({0:?})")]
+    FileHashError(Option<String>),
+    #[error("Failed to set authenticode({0:?})")]
+    SetAuthenticodeError(Option<String>),
+    #[error(transparent)]
+    PemError(#[from] pem::PemError),
+    #[error(transparent)]
+    KeyError(#[from] key::KeyError),
+    #[error(transparent)]
+    CertError(#[from] pkcs7::Pkcs7Error),
+    #[error(transparent)]
+    WinCertificateEncodeError(#[from] WinCertificateError),
 }
 
 pub type LiefResult<T> = Result<T, LiefError>;
@@ -81,6 +109,63 @@ impl Binary {
         let cresult = unsafe { lief::Binary_Build(self.handle, path.as_ptr()) };
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::BuildFileError(Some(err.to_string())))?;
+
+        match status_code {
+            LIEF_SYS_OK => Ok(()),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn set_authenticode(
+        &self,
+        certificate: Vec<u8>,
+        private_key: Vec<u8>,
+        program_name: String,
+    ) -> LiefResult<()> {
+        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
+            .map_err(AuthenticodeError::PemError)?;
+        let private_key = PrivateKey::from_pem(&pem).map_err(AuthenticodeError::KeyError)?;
+
+        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(certificate)))
+            .map_err(AuthenticodeError::PemError)?;
+        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::CertError)?;
+
+        let mut hash_len: usize = 0;
+        let file_hash = unsafe {
+            let cresult = lief::GetFileHash(self.handle, &mut hash_len);
+
+            let file_hash_pointer = cresult_into_lief_result(cresult)
+                .map_err(|err| AuthenticodeError::FileHashError(Some(err.to_string())))?;
+
+            if file_hash_pointer.is_null() || hash_len == 0 {
+                lief::DeallocateFileHash(file_hash_pointer);
+                return Err(AuthenticodeError::FileHashError(None).into());
+            }
+
+            let file_hash = slice::from_raw_parts(file_hash_pointer, hash_len).to_vec();
+
+            lief::DeallocateFileHash(file_hash_pointer);
+
+            file_hash
+        };
+
+        let wincert = pkcs7_certfile
+            .into_win_certificate(
+                file_hash.as_ref(),
+                SHAVariant::SHA2_256,
+                &private_key,
+                program_name,
+            )
+            .map_err(AuthenticodeError::CertError)?;
+
+        let data = wincert
+            .encode()
+            .map_err(AuthenticodeError::WinCertificateEncodeError)?;
+
+        let cresult = unsafe { lief::SetAuthenticate(self.handle, data.as_ptr(), data.len()) };
+
+        let status_code = cresult_into_lief_result(cresult)
+            .map_err(|err| AuthenticodeError::SetAuthenticodeError(Some(err.to_string())))?;
 
         match status_code {
             LIEF_SYS_OK => Ok(()),

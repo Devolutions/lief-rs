@@ -3,8 +3,9 @@
 #include <exception>
 #include <stdexcept>
 #include <vector>
-#include <string>
+
 #include "LIEF/PE.hpp"
+#undef LANG_ENGLISH
 
 #ifdef _MSC_VER
     #define LIEF_SYS_EXPORT __declspec(dllexport)
@@ -14,9 +15,9 @@
 
 #define Result(type, name) typedef struct { type value; const char* message; } name
 
-enum class LIEF_SYS_STATUS: unsigned  int {
-    OK = 0,
-    ERROR,
+enum class LIEF_SYS_STATUS: unsigned int {
+    Ok = 0,
+    Err,
 };
 
 const uint32_t gMaxStringsCount = 16;
@@ -27,6 +28,7 @@ typedef struct Binary Binary;
 typedef struct ResourceManager ResourceManager;
 
 Result(Binary*, BinaryResult);
+Result(uint8_t*, GetFileHashResult);
 Result(unsigned int, StatusResult);
 Result(ResourceManager*, ResourceManagerResult);
 Result(uint8_t*, GetRcDataResult);
@@ -76,10 +78,79 @@ extern "C"
         catch(const std::exception& ex)
         {
             const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+    }
+
+    LIEF_SYS_EXPORT GetFileHashResult GetFileHash(Binary* _this, size_t* hash_len)  {
+        auto* binary = reinterpret_cast<PE::Binary*>(_this);
+        uint8_t* file_hash = nullptr;
+
+        try
+        {
+            std::vector<uint8_t> hash = binary->authentihash(PE::ALGORITHMS::SHA_256);
+            auto file_hash = new uint8_t[hash.size()];
+            std::copy(std::cbegin(hash), std::cend(hash), file_hash);
+            *hash_len = hash.size();
+        }
+        catch(const std::exception &ex)
+        {
+            delete[] file_hash;
+            const char* message = CopyCStringToHeap(ex.what());
+            return GetFileHashResult{ nullptr, message };
+        }
+
+        return GetFileHashResult{ file_hash, nullptr };
+    }
+
+    LIEF_SYS_EXPORT void DeallocateFileHash(const uint8_t* file_hash) {
+        delete[] file_hash;
+    }
+
+    LIEF_SYS_EXPORT StatusResult SetAuthenticate(Binary* _this, const uint8_t* cert_data, size_t cert_data_len) {
+        auto* binary = reinterpret_cast<PE::Binary*>(_this);
+
+        try
+        {
+            std::vector<uint8_t> data(cert_data_len, 0);
+            std::copy(cert_data, cert_data + cert_data_len*sizeof(uint8_t), data.begin());
+
+            uint32_t certificate_table_rva = 0;
+            auto it_sections = binary->sections();
+            auto&& last_section = std::max_element(
+                    std::cbegin(it_sections),
+                    std::cend(it_sections),
+                    [](const PE::Section& first, const PE::Section& second) {
+                        return second.virtual_address() > first.virtual_address();
+                    });
+
+            if (last_section == std::cend(it_sections))
+                return StatusResult {
+                    static_cast<unsigned int>(LIEF_SYS_STATUS::Err),
+                    CopyCStringToHeap("Failed to get the last section")
+            };
+
+            certificate_table_rva += last_section->virtual_address();
+
+            std::vector<uint8_t>& overlay = binary->overlay();
+            certificate_table_rva += overlay.size();
+
+            overlay.reserve(overlay.size() + data.size());
+            overlay.insert(overlay.end(), data.cbegin(), overlay.cend());
+
+            PE::DataDirectory& certificate_table = binary->data_directory(PE::DATA_DIRECTORY::CERTIFICATE_TABLE);
+            certificate_table.size(certificate_table.size() + cert_data_len);
+            certificate_table.RVA(certificate_table_rva);
+        }
+        catch(const std::exception& ex)
+        {
+            const char* message = CopyCStringToHeap(ex.what());
+            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), nullptr};
+        }
+
+        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr};
     }
 
     LIEF_SYS_EXPORT ResourceManagerResult Binary_GetResourceManager(Binary* _this) {
@@ -139,10 +210,10 @@ extern "C"
         catch(const std::exception& ex)
         {
             const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult{static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetRcDataResult GetRcData(ResourceManager* _this, uint32_t resource_id, size_t* rcdata_size) {
@@ -243,10 +314,10 @@ extern "C"
         catch(const std::exception& ex)
         {
             const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult{static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetStringResult GetString(ResourceManager* _this, const uint32_t resource_id,  size_t* const string_size) {
@@ -327,7 +398,7 @@ extern "C"
         {
             if(!resources_manager->has_icons()) {
                 const char* message = CopyCStringToHeap("The executable have no icons");
-                return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+                return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
             }
 
             PE::ResourceIcon icon = CreateIconFromRawData(data, data_size);
@@ -381,10 +452,10 @@ extern "C"
         catch(const std::exception& ex)
         {
             const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
         }
 
-        return  StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return  StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetIconResult GetIcon(ResourceManager* _this, uint32_t width, uint32_t height, size_t* pixels_data_size) {

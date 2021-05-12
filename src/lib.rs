@@ -82,7 +82,7 @@ pub enum AuthenticodeError {
 }
 
 bitflags! {
-     pub struct VerificationChecks: u8 {
+     pub struct VerificationChecks: i32 {
         const DEFAULT           =   0b0000_0001;
         const HASH_ONLY         =   0b0000_0010;
         const LIFETIME_SIGNING  =   0b0000_0100;
@@ -91,7 +91,7 @@ bitflags! {
 }
 
 bitflags! {
-    pub struct VerificationFlags: u16 {
+    pub struct VerificationFlags: i32 {
         const OK                            = 0b0000_0000_0000_0000;
         const INVALID_SIGNER                = 0b0000_0000_0000_0001;
         const UNSUPPORTED_ALGORITHM         = 0b0000_0000_0000_0010;

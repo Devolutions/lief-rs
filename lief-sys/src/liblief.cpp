@@ -31,7 +31,7 @@ typedef struct ResourceManager ResourceManager;
 Result(Binary*, BinaryResult);
 Result(uint8_t*, GetFileHashResult);
 Result(unsigned int, StatusResult);
-Result(uint16_t, SignatureVeryficationResult);
+Result(int, SignatureVeryficationResult);
 Result(ResourceManager*, ResourceManagerResult);
 Result(uint8_t*, GetRcDataResult);
 Result(uint16_t*, GetStringResult);
@@ -147,7 +147,7 @@ extern "C"
         return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
-    LIEF_SYS_EXPORT SignatureVeryficationResult CheckSignature(Binary* _this, uint8_t checks) {
+    LIEF_SYS_EXPORT SignatureVeryficationResult CheckSignature(Binary* _this, int checks) {
         auto* binary = reinterpret_cast<PE::Binary* const>(_this);
 
         auto verification_checks = static_cast<PE::Signature::VERIFICATION_CHECKS>(checks);
@@ -161,7 +161,7 @@ extern "C"
             return SignatureVeryficationResult {static_cast<uint16_t>(-1), CopyCStringToHeap(ex.what())};
         }
 
-        return SignatureVeryficationResult { static_cast<uint16_t>(verification_flags), nullptr };
+        return SignatureVeryficationResult { static_cast<int>(verification_flags), nullptr };
     }
 
     LIEF_SYS_EXPORT ResourceManagerResult Binary_GetResourceManager(Binary* _this) {

@@ -429,7 +429,6 @@ fn verify_signature_default() {
     assert_eq!(check_result, VerificationFlags::OK);
 }
 
-
 #[test]
 fn verify_signature_default_after_patching_resources() {
     let binary = Binary::new(PathBuf::from(BINARY_PATH)).unwrap();
@@ -439,7 +438,7 @@ fn verify_signature_default_after_patching_resources() {
 
     let icon_path = PathBuf::from_str(ICON_256X256).unwrap();
 
-    assert!(resource_manager.set_icon(icon_path.clone()).is_ok());
+    assert!(resource_manager.set_icon(icon_path).is_ok());
 
     let string = "StringTableEntry".to_owned();
     let resource_id = 2;
@@ -449,22 +448,25 @@ fn verify_signature_default_after_patching_resources() {
     let data = "SomeRcData".to_owned().into_bytes();
     let resource_id = 10;
 
-    assert!(resource_manager
-        .set_rcdata(data.clone(), resource_id)
-        .is_ok());
+    assert!(resource_manager.set_rcdata(data, resource_id).is_ok());
 
     let file_path = TEMP_DIR.path().join(format!("{}.exe", Uuid::new_v4()));
     binary.build(file_path.clone(), true).unwrap();
     // Resource patching end
 
-    let buffer = read_icon_into_vector(icon_path);
     let binary = Binary::new(file_path).unwrap();
 
     let cert = read_file_into_vec(PathBuf::from(CERTIFICATE_WITH_ROOT_CHAIN));
     let key = read_file_into_vec(PathBuf::from(PRIVATE_KEY));
 
     binary
-        .set_authenticode(cert, key, Some(String::from("verify_signature_default_after_patching_resources")))
+        .set_authenticode(
+            cert,
+            key,
+            Some(String::from(
+                "verify_signature_default_after_patching_resources",
+            )),
+        )
         .unwrap();
 
     let output_binary = TEMP_DIR.path().join(format!("{}.exe", Uuid::new_v4()));
@@ -478,7 +480,6 @@ fn verify_signature_default_after_patching_resources() {
 
     assert_eq!(check_result, VerificationFlags::OK);
 }
-
 
 #[test]
 fn verify_signature_hash_only() {

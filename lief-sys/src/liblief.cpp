@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "LIEF/PE.hpp"
-#include "LIEF/logging.hpp"
 #undef LANG_ENGLISH
 
 #ifdef _MSC_VER
@@ -80,10 +79,10 @@ extern "C"
         catch(const std::exception& ex)
         {
             const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
+            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
         }
 
-        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetFileHashResult GetFileHash(Binary* _this, size_t* hash_len)  {
@@ -142,13 +141,13 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what())};
+            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
         }
 
         return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
-    LIEF_SYS_EXPORT SignatureVeryficationResult check_signature(Binary* _this, uint8_t checks) {
+    LIEF_SYS_EXPORT SignatureVeryficationResult CheckSignature(Binary* _this, uint8_t checks) {
         auto* binary = reinterpret_cast<PE::Binary* const>(_this);
 
         auto verification_checks = static_cast<PE::Signature::VERIFICATION_CHECKS>(checks);

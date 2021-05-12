@@ -9,6 +9,7 @@ use std::{
 use bitflags::bitflags;
 use image::{codecs::ico::IcoDecoder, imageops::FilterType, DynamicImage, ImageOutputFormat};
 use picky::{
+    hash::HashAlgorithm,
     key::{self, PrivateKey},
     pem::{self, Pem},
     x509::{
@@ -21,7 +22,6 @@ use widestring::U16CString;
 
 use lief_sys as lief;
 use lief_sys::CResult;
-use picky::hash::HashAlgorithm;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -141,7 +141,7 @@ impl Binary {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::BuildFileError(Some(err.to_string())))?;
 
-        check_ffi_status_code(status_code)
+        ffi_status_code_to_lief_result(status_code)
     }
 
     // WARNING!!! The  set_authenticode function shouldn't be used with the patching resource section at the same time.
@@ -199,11 +199,11 @@ impl Binary {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| AuthenticodeError::SetAuthenticodeError(Some(err.to_string())))?;
 
-        check_ffi_status_code(status_code)
+        ffi_status_code_to_lief_result(status_code)
     }
 
     pub fn check_signature(&self, checks: VerificationChecks) -> LiefResult<VerificationFlags> {
-        let cresult = unsafe { lief::check_signature(self.handle, checks.bits) };
+        let cresult = unsafe { lief::CheckSignature(self.handle, checks.bits) };
 
         let verification_flags = cresult_into_lief_result(cresult)
             .map_err(|err| AuthenticodeError::SignatureCheckError(Some(err.to_string())))?;
@@ -239,7 +239,7 @@ impl ResourceManager {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::SetRcDataError(Some(err.to_string())))?;
 
-        check_ffi_status_code(status_code)
+        ffi_status_code_to_lief_result(status_code)
     }
 
     pub fn get_rcdata(&self, id: u32) -> LiefResult<Vec<u8>> {
@@ -282,7 +282,7 @@ impl ResourceManager {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::SetStringError(Some(err.to_string())))?;
 
-        check_ffi_status_code(status_code)
+        ffi_status_code_to_lief_result(status_code)
     }
 
     pub fn get_string(&self, id: u32) -> LiefResult<String> {
@@ -343,7 +343,7 @@ impl ResourceManager {
             let status_code = cresult_into_lief_result(cresult)
                 .map_err(|err| LiefError::SetIconError(Some(err.to_string())))?;
 
-            check_ffi_status_code(status_code)?
+            ffi_status_code_to_lief_result(status_code)?
         }
 
         Ok(())
@@ -449,7 +449,7 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
 }
 
 #[inline]
-fn check_ffi_status_code(status_code: u32) -> LiefResult<()> {
+fn ffi_status_code_to_lief_result(status_code: u32) -> LiefResult<()> {
     match status_code {
         LIEF_SYS_OK => Ok(()),
         _ => Err(LiefError::Unknown),

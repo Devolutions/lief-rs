@@ -19,7 +19,7 @@ extern "C" {
         cert_data: *const u8,
         cert_data_len: usize,
     ) -> CResult<c_uint>;
-    pub fn check_signature(this: Binary, checks: u8) -> CResult<u16>;
+    pub fn CheckSignature(this: Binary, checks: u8) -> CResult<u16>;
     pub fn Binary_GetResourceManager(this: Binary) -> CResult<ResourceManager>;
 
     pub fn Binary_Free(this: Binary);

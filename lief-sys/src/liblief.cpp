@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "LIEF/PE.hpp"
+#include "LIEF/logging.hpp"
 #undef LANG_ENGLISH
 
 #ifdef _MSC_VER
@@ -45,6 +46,8 @@ extern "C"
 {
     LIEF_SYS_EXPORT BinaryResult Binary_New(const char* path) {
         std::unique_ptr<PE::Binary> binary;
+        logging::enable();
+        logging::set_level(logging::LOGGING_LEVEL::LOG_INFO);
 
         try
         {

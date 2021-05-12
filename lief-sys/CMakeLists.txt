@@ -21,7 +21,7 @@ set(LIEF_VERSION 0.11.0)
 set(LIEF_CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
         -DLIEF_PE=on
-        -DLIEF_LOGGING=off
+        -DLIEF_LOGGING=on
         -DLIEF_ELF=on
         -DLIEF_MACHO=off
         -DLIEF_PYTHON_API=off

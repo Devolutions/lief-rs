@@ -29,8 +29,6 @@ const ICONS_SIZES: [u32; 10] = [256, 128, 96, 64, 48, 40, 32, 24, 20, 16];
 
 #[derive(Debug, Error)]
 pub enum LiefError {
-    #[error(transparent)]
-    AuthenticodeError(#[from] AuthenticodeError),
     #[error("Failed to parse Binary file({0:?})")]
     ParseFileError(Option<String>),
     #[error("Failed to build Binary file({0:?})")]
@@ -61,6 +59,8 @@ pub enum LiefError {
     CError(String),
     #[error("unknown, unexpected error occurred")]
     Unknown,
+    #[error(transparent)]
+    AuthenticodeError(#[from] AuthenticodeError),
 }
 
 #[derive(Debug, Error)]

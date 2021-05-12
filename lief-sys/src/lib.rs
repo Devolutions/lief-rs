@@ -12,13 +12,14 @@ pub struct CResult<T> {
 
 extern "C" {
     pub fn Binary_New(path: *const c_char) -> CResult<Binary>;
-    pub fn Binary_Build(this: Binary, path: *const c_char) -> CResult<c_uint>;
+    pub fn Binary_Build(this: Binary, path: *const c_char, with_resource: bool) -> CResult<c_uint>;
     pub fn GetFileHash(this: Binary, hash_len: *mut usize) -> CResult<*const u8>;
-    pub fn SetAuthenticate(
+    pub fn SetAuthenticode(
         this: Binary,
         cert_data: *const u8,
         cert_data_len: usize,
     ) -> CResult<c_uint>;
+    pub fn check_signature(this: Binary, checks: u8) -> CResult<u16>;
     pub fn Binary_GetResourceManager(this: Binary) -> CResult<ResourceManager>;
 
     pub fn Binary_Free(this: Binary);

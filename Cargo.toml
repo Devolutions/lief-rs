@@ -9,8 +9,10 @@ name = "lief"
 path = "src/lib.rs"
 
 [dependencies]
+bitflags = "1.2.1"
 image = { version = "0.23.0", features = [ "ico" ] }
 lief-sys = { path = "lief-sys" }
+picky = { git = "https://github.com/Devolutions/picky-rs.git", branch = "authenticode" }
 thiserror = "1.0.24"
 widestring = "0.4.3"
 

@@ -2,9 +2,11 @@
 #include <memory>
 #include <exception>
 #include <stdexcept>
+#include <numeric>
 #include <vector>
 
 #include "LIEF/PE.hpp"
+#include "LIEF/logging.hpp"
 #undef LANG_ENGLISH
 
 #ifdef _MSC_VER
@@ -30,6 +32,7 @@ typedef struct ResourceManager ResourceManager;
 Result(Binary*, BinaryResult);
 Result(uint8_t*, GetFileHashResult);
 Result(unsigned int, StatusResult);
+Result(uint16_t, SignatureVeryficationResult);
 Result(ResourceManager*, ResourceManagerResult);
 Result(uint8_t*, GetRcDataResult);
 Result(uint16_t*, GetStringResult);
@@ -64,12 +67,11 @@ extern "C"
         delete binary;
     }
 
-    LIEF_SYS_EXPORT StatusResult Binary_Build(Binary* _this, const char* path) {
+    LIEF_SYS_EXPORT StatusResult Binary_Build(Binary* _this, const char* path, bool with_resources) {
         auto* binary = reinterpret_cast<PE::Binary*>(_this);
         PE::Builder builder = PE::Builder(binary);
 
-        builder.build_resources(true);
-
+        builder.build_resources(with_resources);
         try
         {
             builder.build();
@@ -91,15 +93,14 @@ extern "C"
         try
         {
             std::vector<uint8_t> hash = binary->authentihash(PE::ALGORITHMS::SHA_256);
-            auto file_hash = new uint8_t[hash.size()];
+            file_hash = new uint8_t[hash.size()];
             std::copy(std::cbegin(hash), std::cend(hash), file_hash);
             *hash_len = hash.size();
         }
         catch(const std::exception &ex)
         {
             delete[] file_hash;
-            const char* message = CopyCStringToHeap(ex.what());
-            return GetFileHashResult{ nullptr, message };
+            return GetFileHashResult{ nullptr, CopyCStringToHeap(ex.what()) };
         }
 
         return GetFileHashResult{ file_hash, nullptr };
@@ -109,48 +110,59 @@ extern "C"
         delete[] file_hash;
     }
 
-    LIEF_SYS_EXPORT StatusResult SetAuthenticate(Binary* _this, const uint8_t* cert_data, size_t cert_data_len) {
+    LIEF_SYS_EXPORT StatusResult SetAuthenticode(Binary* _this, const uint8_t* cert_data, size_t cert_data_len) {
         auto* binary = reinterpret_cast<PE::Binary*>(_this);
 
         try
         {
-            std::vector<uint8_t> data(cert_data_len, 0);
-            std::copy(cert_data, cert_data + cert_data_len*sizeof(uint8_t), data.begin());
-
-            uint32_t certificate_table_rva = 0;
             auto it_sections = binary->sections();
-            auto&& last_section = std::max_element(
+
+            std::vector<uint8_t> data(cert_data_len, 0);
+            std::copy(cert_data, cert_data + cert_data_len * sizeof(uint8_t), data.begin());
+
+            uint32_t certificate_table_offset = 0;
+            const uint64_t last_section_offset = std::accumulate(
                     std::cbegin(it_sections),
-                    std::cend(it_sections),
-                    [](const PE::Section& first, const PE::Section& second) {
-                        return second.virtual_address() > first.virtual_address();
+                    std::cend(it_sections), 0,
+                    [] (uint64_t offset, const PE::Section& section) {
+                        return std::max<uint64_t>(section.offset() + section.size(), offset);
                     });
 
-            if (last_section == std::cend(it_sections))
-                return StatusResult {
-                    static_cast<unsigned int>(LIEF_SYS_STATUS::Err),
-                    CopyCStringToHeap("Failed to get the last section")
-            };
-
-            certificate_table_rva += last_section->virtual_address();
-
+            certificate_table_offset += last_section_offset;
             std::vector<uint8_t>& overlay = binary->overlay();
-            certificate_table_rva += overlay.size();
+            certificate_table_offset += overlay.size();
 
-            overlay.reserve(overlay.size() + data.size());
-            overlay.insert(overlay.end(), data.cbegin(), overlay.cend());
+            overlay.reserve(data.size());
+            std::copy(data.cbegin(), data.cend(), std::back_inserter(overlay));
 
             PE::DataDirectory& certificate_table = binary->data_directory(PE::DATA_DIRECTORY::CERTIFICATE_TABLE);
-            certificate_table.size(certificate_table.size() + cert_data_len);
-            certificate_table.RVA(certificate_table_rva);
+
+            certificate_table.RVA(certificate_table_offset);
+            certificate_table.size(cert_data_len);
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), nullptr};
+            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what())};
         }
 
-        return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr};
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+    }
+
+    LIEF_SYS_EXPORT SignatureVeryficationResult check_signature(Binary* _this, uint8_t checks) {
+        auto* binary = reinterpret_cast<PE::Binary* const>(_this);
+
+        auto verification_checks = static_cast<PE::Signature::VERIFICATION_CHECKS>(checks);
+        auto verification_flags = PE::Signature::VERIFICATION_FLAGS::OK;
+        try
+        {
+            verification_flags = binary->verify_signature(verification_checks);
+        }
+        catch(const std::exception& ex)
+        {
+            return SignatureVeryficationResult {static_cast<uint16_t>(-1), CopyCStringToHeap(ex.what())};
+        }
+
+        return SignatureVeryficationResult { static_cast<uint16_t>(verification_flags), nullptr };
     }
 
     LIEF_SYS_EXPORT ResourceManagerResult Binary_GetResourceManager(Binary* _this) {

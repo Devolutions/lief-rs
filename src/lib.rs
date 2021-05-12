@@ -1,11 +1,12 @@
 use std::{
     ffi::{CStr, CString},
     fs::File,
-    io::{self, BufReader, ErrorKind},
+    io::{self, BufReader, Cursor, ErrorKind},
     path::{Path, PathBuf},
     slice,
 };
 
+use bitflags::bitflags;
 use image::{codecs::ico::IcoDecoder, imageops::FilterType, DynamicImage, ImageOutputFormat};
 use picky::{
     key::{self, PrivateKey},
@@ -15,13 +16,12 @@ use picky::{
         wincert::WinCertificateError,
     },
 };
-use picky_asn1_x509::SHAVariant;
 use thiserror::Error;
 use widestring::U16CString;
 
 use lief_sys as lief;
 use lief_sys::CResult;
-use std::io::Cursor;
+use picky::hash::HashAlgorithm;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -59,6 +59,8 @@ pub enum LiefError {
     Other { description: String },
     #[error("{0}")]
     CError(String),
+    #[error("unknown, unexpected error occurred")]
+    Unknown,
 }
 
 #[derive(Debug, Error)]
@@ -67,6 +69,8 @@ pub enum AuthenticodeError {
     FileHashError(Option<String>),
     #[error("Failed to set authenticode({0:?})")]
     SetAuthenticodeError(Option<String>),
+    #[error("Failed to check signature({0:?})")]
+    SignatureCheckError(Option<String>),
     #[error(transparent)]
     PemError(#[from] pem::PemError),
     #[error(transparent)]
@@ -75,6 +79,33 @@ pub enum AuthenticodeError {
     CertError(#[from] pkcs7::Pkcs7Error),
     #[error(transparent)]
     WinCertificateEncodeError(#[from] WinCertificateError),
+}
+
+bitflags! {
+     pub struct VerificationChecks: u8 {
+        const DEFAULT           =   0b0000_0001;
+        const HASH_ONLY         =   0b0000_0010;
+        const LIFETIME_SIGNING  =   0b0000_0100;
+        const SKIP_CERT_TIME    =   0b0000_1000;
+    }
+}
+
+bitflags! {
+    pub struct VerificationFlags: u16 {
+        const OK                            = 0b0000_0000_0000_0000;
+        const INVALID_SIGNER                = 0b0000_0000_0000_0001;
+        const UNSUPPORTED_ALGORITHM         = 0b0000_0000_0000_0010;
+        const INCONSISTENT_DIGEST_ALGORITHM = 0b0000_0000_0000_0100;
+        const CERT_NOT_FOUND                = 0b0000_0000_0000_1000;
+        const CORRUPTED_CONTENT_INFO        = 0b0000_0000_0001_0000;
+        const CORRUPTED_AUTH_DATA           = 0b0000_0000_0010_0000;
+        const MISSING_PKCS9_MESSAGE_DIGEST  = 0b0000_0000_0100_0000;
+        const BAD_DIGEST                    = 0b0000_0000_1000_0000;
+        const BAD_SIGNATURE                 = 0b0000_0001_0000_0000;
+        const NO_SIGNATURE                  = 0b0000_0010_0000_0000;
+        const CERT_EXPIRED                  = 0b0000_0100_0000_0000;
+        const CERT_FUTURE                   = 0b0000_1000_0000_0000;
+    }
 }
 
 pub type LiefResult<T> = Result<T, LiefError>;
@@ -103,24 +134,25 @@ impl Binary {
         Ok(Self { handle })
     }
 
-    pub fn build(self, where_to_save: PathBuf) -> LiefResult<()> {
+    pub fn build(self, where_to_save: PathBuf, with_resources: bool) -> LiefResult<()> {
         let path = path_to_cstring(where_to_save.as_path())?;
 
-        let cresult = unsafe { lief::Binary_Build(self.handle, path.as_ptr()) };
+        let cresult = unsafe { lief::Binary_Build(self.handle, path.as_ptr(), with_resources) };
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::BuildFileError(Some(err.to_string())))?;
 
-        match status_code {
-            LIEF_SYS_OK => Ok(()),
-            _ => unreachable!(),
-        }
+        check_ffi_status_code(status_code)
     }
+
+    // WARNING!!! The  set_authenticode function shouldn't be used with the patching resource section at the same time.
+    // The resource section hash is not included in the file hash set_authenticode as the resource section constructed while building.
+    // Patch resource section first, build it, load the built binary, set Authenticode, and build again.
 
     pub fn set_authenticode(
         &self,
         certificate: Vec<u8>,
         private_key: Vec<u8>,
-        program_name: String,
+        program_name: Option<String>,
     ) -> LiefResult<()> {
         let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
             .map_err(AuthenticodeError::PemError)?;
@@ -152,7 +184,7 @@ impl Binary {
         let wincert = pkcs7_certfile
             .into_win_certificate(
                 file_hash.as_ref(),
-                SHAVariant::SHA2_256,
+                HashAlgorithm::SHA2_256,
                 &private_key,
                 program_name,
             )
@@ -162,15 +194,22 @@ impl Binary {
             .encode()
             .map_err(AuthenticodeError::WinCertificateEncodeError)?;
 
-        let cresult = unsafe { lief::SetAuthenticate(self.handle, data.as_ptr(), data.len()) };
+        let cresult = unsafe { lief::SetAuthenticode(self.handle, data.as_ptr(), data.len()) };
 
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| AuthenticodeError::SetAuthenticodeError(Some(err.to_string())))?;
 
-        match status_code {
-            LIEF_SYS_OK => Ok(()),
-            _ => unreachable!(),
-        }
+        check_ffi_status_code(status_code)
+    }
+
+    pub fn check_signature(&self, checks: VerificationChecks) -> LiefResult<VerificationFlags> {
+        let cresult = unsafe { lief::check_signature(self.handle, checks.bits) };
+
+        let verification_flags = cresult_into_lief_result(cresult)
+            .map_err(|err| AuthenticodeError::SignatureCheckError(Some(err.to_string())))?;
+
+        VerificationFlags::from_bits(verification_flags)
+            .ok_or_else(|| AuthenticodeError::SignatureCheckError(None).into())
     }
 
     pub fn resource_manager(&self) -> LiefResult<ResourceManager> {
@@ -200,10 +239,7 @@ impl ResourceManager {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::SetRcDataError(Some(err.to_string())))?;
 
-        match status_code {
-            LIEF_SYS_OK => Ok(()),
-            _ => unreachable!(),
-        }
+        check_ffi_status_code(status_code)
     }
 
     pub fn get_rcdata(&self, id: u32) -> LiefResult<Vec<u8>> {
@@ -246,10 +282,7 @@ impl ResourceManager {
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| LiefError::SetStringError(Some(err.to_string())))?;
 
-        match status_code {
-            LIEF_SYS_OK => Ok(()),
-            _ => unreachable!(),
-        }
+        check_ffi_status_code(status_code)
     }
 
     pub fn get_string(&self, id: u32) -> LiefResult<String> {
@@ -310,10 +343,7 @@ impl ResourceManager {
             let status_code = cresult_into_lief_result(cresult)
                 .map_err(|err| LiefError::SetIconError(Some(err.to_string())))?;
 
-            match status_code {
-                LIEF_SYS_OK => {}
-                _ => unreachable!(),
-            }
+            check_ffi_status_code(status_code)?
         }
 
         Ok(())
@@ -415,5 +445,13 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
             .to_owned();
 
         Err(LiefError::CError(message))
+    }
+}
+
+#[inline]
+fn check_ffi_status_code(status_code: u32) -> LiefResult<()> {
+    match status_code {
+        LIEF_SYS_OK => Ok(()),
+        _ => Err(LiefError::Unknown),
     }
 }

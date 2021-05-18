@@ -9,7 +9,6 @@ use std::{
 use bitflags::bitflags;
 use image::{codecs::ico::IcoDecoder, imageops::FilterType, DynamicImage, ImageOutputFormat};
 use picky::{
-    hash::HashAlgorithm,
     key::{self, PrivateKey},
     pem::{self, Pem},
     x509::{
@@ -22,6 +21,8 @@ use widestring::U16CString;
 
 use lief_sys as lief;
 use lief_sys::CResult;
+
+pub use picky::hash::HashAlgorithm;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -79,6 +80,8 @@ pub enum AuthenticodeError {
     CertError(#[from] pkcs7::Pkcs7Error),
     #[error(transparent)]
     WinCertificateEncodeError(#[from] WinCertificateError),
+    #[error("Got unsupported hash algorithm. Supported are SHA2_256, SHA2_384, SHA2_512, but got{0:?}")]
+    UnsupportedHashAlgorithm(HashAlgorithm),
 }
 
 bitflags! {
@@ -106,6 +109,12 @@ bitflags! {
         const CERT_EXPIRED                  = 0b0000_0100_0000_0000;
         const CERT_FUTURE                   = 0b0000_1000_0000_0000;
     }
+}
+
+#[derive(Debug)]
+enum Hashes {
+    SHA256 = 0,
+    SHA512 = 1,
 }
 
 pub type LiefResult<T> = Result<T, LiefError>;
@@ -153,6 +162,7 @@ impl Binary {
         certificate: Vec<u8>,
         private_key: Vec<u8>,
         program_name: Option<String>,
+        hash_algo: HashAlgorithm,
     ) -> LiefResult<()> {
         let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
             .map_err(AuthenticodeError::PemError)?;
@@ -163,8 +173,10 @@ impl Binary {
         let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::CertError)?;
 
         let mut hash_len: usize = 0;
+        let lief_hash_algo = picky_hash_algorithms_to_lief_hash_algorithms(hash_algo)?;
+
         let file_hash = unsafe {
-            let cresult = lief::GetFileHash(self.handle, &mut hash_len);
+            let cresult = lief::GetFileHash(self.handle, &mut hash_len, lief_hash_algo as u8);
 
             let file_hash_pointer = cresult_into_lief_result(cresult)
                 .map_err(|err| AuthenticodeError::FileHashError(Some(err.to_string())))?;
@@ -184,7 +196,7 @@ impl Binary {
         let wincert = pkcs7_certfile
             .into_win_certificate(
                 file_hash.as_ref(),
-                HashAlgorithm::SHA2_256,
+                hash_algo,
                 &private_key,
                 program_name,
             )
@@ -453,5 +465,13 @@ fn ffi_status_code_to_lief_result(status_code: u32) -> LiefResult<()> {
     match status_code {
         LIEF_SYS_OK => Ok(()),
         _ => Err(LiefError::Unknown),
+    }
+}
+
+fn picky_hash_algorithms_to_lief_hash_algorithms(hash_algorithm: HashAlgorithm) -> Result<Hashes, LiefError> {
+    match hash_algorithm {
+        HashAlgorithm::SHA2_256 => Ok(Hashes::SHA256),
+        HashAlgorithm::SHA2_512 => Ok(Hashes::SHA512),
+        _ => Err(LiefError::AuthenticodeError(AuthenticodeError::UnsupportedHashAlgorithm(hash_algorithm)))
     }
 }

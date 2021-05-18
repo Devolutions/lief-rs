@@ -42,6 +42,12 @@ PE::ResourceIcon CreateIconFromRawData(const uint8_t* data, size_t data_size);
 void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id);
 const char* CopyCStringToHeap(const char* string);
 
+
+enum class HashAlgorithm: uint8_t {
+    SHA256 = 0,
+    SHA512 = 1,
+};
+
 extern "C"
 {
     LIEF_SYS_EXPORT BinaryResult Binary_New(const char* path) {
@@ -87,13 +93,23 @@ extern "C"
         return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
-    LIEF_SYS_EXPORT GetFileHashResult GetFileHash(Binary* _this, size_t* hash_len)  {
+    LIEF_SYS_EXPORT GetFileHashResult GetFileHash(Binary* _this, size_t* hash_len, uint8_t hash_algo)  {
+        static const std::map<HashAlgorithm, PE::ALGORITHMS> HASHES = {
+                {HashAlgorithm::SHA256, PE::ALGORITHMS::SHA_256},
+                {HashAlgorithm::SHA512, PE::ALGORITHMS::SHA_512},
+        };
+
         auto* binary = reinterpret_cast<PE::Binary*>(_this);
         std::unique_ptr<uint8_t []> file_hash = nullptr;
 
         try
         {
-            std::vector<uint8_t> hash = binary->authentihash(PE::ALGORITHMS::SHA_256);
+            auto it_hash = HASHES.find(static_cast<HashAlgorithm>(hash_algo));
+
+            if (it_hash == std::end(HASHES))
+                return GetFileHashResult{ nullptr, CopyCStringToHeap("Unsupported hash algorithm") };
+
+            std::vector<uint8_t> hash = binary->authentihash(it_hash->second);
             if (hash.size() == 0)
                 return GetFileHashResult{ nullptr, CopyCStringToHeap("Authentihash size is zero") };
 

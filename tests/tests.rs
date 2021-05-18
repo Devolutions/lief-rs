@@ -4,6 +4,7 @@ use lief::{Binary, VerificationChecks, VerificationFlags};
 use std::{fs::File, io::Read, path::PathBuf, str::FromStr};
 use tempfile::{tempdir, TempDir};
 use uuid::Uuid;
+use picky::hash::HashAlgorithm;
 
 const BINARY_PATH: &str = "tests/assets/WaykCse.exe";
 const ICON_16X16: &str = "tests/assets/icons/icon_16x16.ico";
@@ -351,7 +352,8 @@ fn set_authenticode_should_not_panic() {
         .set_authenticode(
             cert,
             key,
-            Some(String::from("set_authenticode_doesnt_panic"))
+            Some(String::from("set_authenticode_doesnt_panic")),
+            HashAlgorithm::SHA2_256,
         )
         .is_ok());
 }
@@ -369,6 +371,7 @@ fn binary_can_be_built_after_setting_authenticode() {
             Some(String::from(
                 "binary_can_be_built_after_setting_authenticode",
             )),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 
@@ -396,6 +399,7 @@ fn setting_authenticode_increase_output_binary_size() {
             Some(String::from(
                 "setting_authenticode_increase_output_binary_size",
             )),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 
@@ -414,7 +418,7 @@ fn verify_signature_default() {
     let key = read_file_into_vec(PathBuf::from(PRIVATE_KEY));
 
     binary
-        .set_authenticode(cert, key, Some(String::from("verifysignaturedefault")))
+        .set_authenticode(cert, key, Some(String::from("verifysignaturedefault")), HashAlgorithm::SHA2_256)
         .unwrap();
 
     let output_binary = TEMP_DIR.path().join(format!("{}.exe", Uuid::new_v4()));
@@ -466,6 +470,7 @@ fn verify_signature_default_after_patching_resources() {
             Some(String::from(
                 "verify_signature_default_after_patching_resources",
             )),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 
@@ -494,6 +499,7 @@ fn verify_signature_hash_only() {
             Some(String::from(
                 "setting_authenticode_increase_output_binary_size",
             )),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 
@@ -522,6 +528,7 @@ fn verify_signature_skip_cert_time() {
             Some(String::from(
                 "setting_authenticode_increase_output_binary_size",
             )),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 
@@ -548,6 +555,7 @@ fn verify_signature_lifetime_signing() {
             cert,
             key,
             Some(String::from("verify_signature_lifetime_signing")),
+            HashAlgorithm::SHA2_256
         )
         .unwrap();
 

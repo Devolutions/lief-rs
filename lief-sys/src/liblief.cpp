@@ -2,9 +2,12 @@
 #include <memory>
 #include <exception>
 #include <stdexcept>
+#include <numeric>
 #include <vector>
-#include <string>
+
 #include "LIEF/PE.hpp"
+#include "LIEF/logging.hpp"
+#undef LANG_ENGLISH
 
 #ifdef _MSC_VER
     #define LIEF_SYS_EXPORT __declspec(dllexport)
@@ -14,9 +17,9 @@
 
 #define Result(type, name) typedef struct { type value; const char* message; } name
 
-enum class LIEF_SYS_STATUS: unsigned  int {
-    OK = 0,
-    ERROR,
+enum class LIEF_SYS_STATUS: unsigned int {
+    Ok = 0,
+    Err,
 };
 
 const uint32_t gMaxStringsCount = 16;
@@ -27,7 +30,9 @@ typedef struct Binary Binary;
 typedef struct ResourceManager ResourceManager;
 
 Result(Binary*, BinaryResult);
+Result(uint8_t*, GetFileHashResult);
 Result(unsigned int, StatusResult);
+Result(int, SignatureVeryficationResult);
 Result(ResourceManager*, ResourceManagerResult);
 Result(uint8_t*, GetRcDataResult);
 Result(uint16_t*, GetStringResult);
@@ -41,6 +46,8 @@ extern "C"
 {
     LIEF_SYS_EXPORT BinaryResult Binary_New(const char* path) {
         std::unique_ptr<PE::Binary> binary;
+        logging::enable();
+        logging::set_level(logging::LOGGING_LEVEL::LOG_INFO);
 
         try
         {
@@ -62,12 +69,11 @@ extern "C"
         delete binary;
     }
 
-    LIEF_SYS_EXPORT StatusResult Binary_Build(Binary* _this, const char* path) {
+    LIEF_SYS_EXPORT StatusResult Binary_Build(Binary* _this, const char* path, bool with_resources) {
         auto* binary = reinterpret_cast<PE::Binary*>(_this);
         PE::Builder builder = PE::Builder(binary);
 
-        builder.build_resources(true);
-
+        builder.build_resources(with_resources);
         try
         {
             builder.build();
@@ -75,11 +81,96 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+    }
+
+    LIEF_SYS_EXPORT GetFileHashResult GetFileHash(Binary* _this, size_t* hash_len)  {
+        auto* binary = reinterpret_cast<PE::Binary*>(_this);
+        std::unique_ptr<uint8_t []> file_hash = nullptr;
+
+        try
+        {
+            std::vector<uint8_t> hash = binary->authentihash(PE::ALGORITHMS::SHA_256);
+            if (hash.size() == 0)
+                return GetFileHashResult{ nullptr, CopyCStringToHeap("Authentihash size is zero") };
+
+            file_hash.reset(new uint8_t[hash.size()]);
+
+            std::copy(std::cbegin(hash), std::cend(hash), file_hash.get());
+
+            if (hash_len == nullptr)
+                return GetFileHashResult{ nullptr, CopyCStringToHeap("Out variable hash_len is a null pointer") };
+
+            *hash_len = hash.size();
+        }
+        catch(const std::exception &ex)
+        {
+            return GetFileHashResult{ nullptr, CopyCStringToHeap(ex.what()) };
+        }
+
+        return GetFileHashResult{ file_hash.release(), nullptr };
+    }
+
+    LIEF_SYS_EXPORT void DeallocateFileHash(const uint8_t* file_hash) {
+        delete[] file_hash;
+    }
+
+    LIEF_SYS_EXPORT StatusResult SetAuthenticode(Binary* _this, const uint8_t* cert_data, size_t cert_data_len) {
+        auto* binary = reinterpret_cast<PE::Binary*>(_this);
+
+        try
+        {
+            auto it_sections = binary->sections();
+
+            std::vector<uint8_t> data(cert_data_len, 0);
+            std::copy(cert_data, cert_data + cert_data_len * sizeof(uint8_t), data.begin());
+
+            uint32_t certificate_table_offset = 0;
+            const uint64_t last_section_offset = std::accumulate(
+                    std::cbegin(it_sections),
+                    std::cend(it_sections), 0,
+                    [] (uint64_t offset, const PE::Section& section) {
+                        return std::max<uint64_t>(section.offset() + section.size(), offset);
+                    });
+
+            certificate_table_offset += last_section_offset;
+            std::vector<uint8_t>& overlay = binary->overlay();
+            certificate_table_offset += overlay.size();
+
+            overlay.reserve(data.size());
+            std::copy(data.cbegin(), data.cend(), std::back_inserter(overlay));
+
+            PE::DataDirectory& certificate_table = binary->data_directory(PE::DATA_DIRECTORY::CERTIFICATE_TABLE);
+
+            certificate_table.RVA(certificate_table_offset);
+            certificate_table.size(cert_data_len);
+        }
+        catch(const std::exception& ex)
+        {
+            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
+        }
+
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+    }
+
+    LIEF_SYS_EXPORT SignatureVeryficationResult CheckSignature(Binary* _this, int checks) {
+        auto* binary = reinterpret_cast<PE::Binary* const>(_this);
+
+        auto verification_checks = static_cast<PE::Signature::VERIFICATION_CHECKS>(checks);
+        auto verification_flags = PE::Signature::VERIFICATION_FLAGS::OK;
+        try
+        {
+            verification_flags = binary->verify_signature(verification_checks);
+        }
+        catch(const std::exception& ex)
+        {
+            return SignatureVeryficationResult {static_cast<uint16_t>(-1), CopyCStringToHeap(ex.what())};
+        }
+
+        return SignatureVeryficationResult { static_cast<int>(verification_flags), nullptr };
     }
 
     LIEF_SYS_EXPORT ResourceManagerResult Binary_GetResourceManager(Binary* _this) {
@@ -95,8 +186,7 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return ResourceManagerResult{ nullptr, message };
+            return ResourceManagerResult{ nullptr, CopyCStringToHeap(ex.what()) };
         }
 
         *resourceManager = tmp;
@@ -138,17 +228,16 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetRcDataResult GetRcData(ResourceManager* _this, uint32_t resource_id, size_t* rcdata_size) {
         auto* resources_manager = reinterpret_cast<PE::ResourcesManager*>(_this);
 
-        uint8_t* rcdata = nullptr;
+        std::unique_ptr<uint8_t[]> rcdata = nullptr;
         try
         {
             PE::ResourceNode& rcdata_root = resources_manager->get_node_type(PE::RESOURCE_TYPES::RCDATA);
@@ -161,43 +250,37 @@ extern "C"
                         return node.id() == resource_id;
                     });
 
-            if(rcdata_dir_node == std::cend(childs)) {
-                const char* message = CopyCStringToHeap("Failed to find rcdata dir node in rcdata root node");
-                return GetRcDataResult { rcdata, message };
-            }
+            if(rcdata_dir_node == std::cend(childs))
+                return GetRcDataResult { nullptr, CopyCStringToHeap("Failed to find rcdata dir node in rcdata root node") };
 
             auto dir_childs = rcdata_dir_node->childs();
-            if(dir_childs.size() == 0) {
-                const char* message = CopyCStringToHeap("There is no children in rcdata dir node");
-                return GetRcDataResult { rcdata, message };
-            }
+            if(dir_childs.size() == 0)
+                return GetRcDataResult { nullptr, CopyCStringToHeap("There is no children in rcdata dir node") };
 
             const auto* rcdata_data_node = static_cast<PE::ResourceData*>(&dir_childs[0]);
 
-            if(rcdata_data_node == nullptr) {
-                const char* message = CopyCStringToHeap("There is no children in rcdata dir node");
-                return GetRcDataResult { rcdata, message };
-            }
+            if(rcdata_data_node == nullptr)
+                return GetRcDataResult { nullptr, CopyCStringToHeap("There is no children in rcdata dir node") };
 
             const auto& content = rcdata_data_node->content();
-            if(content.size() == 0) {
-                const char* message = CopyCStringToHeap("Rcdata content is empty");
-                return GetRcDataResult { rcdata, message };
-            }
+            if(content.size() == 0)
+                return GetRcDataResult { nullptr, CopyCStringToHeap("Rcdata content is empty") };
 
-            rcdata = new uint8_t[content.size()];
+            rcdata.reset(new uint8_t[content.size()]);
 
-            std::copy(std::cbegin(content), std::cend(content), rcdata);
+            std::copy(std::cbegin(content), std::cend(content), rcdata.get());
+
+            if(rcdata_size == nullptr)
+                return GetRcDataResult{ nullptr, CopyCStringToHeap("Out variable rcdata_size is a null pointer") };
+
             *rcdata_size = content.size();
         }
         catch(const std::exception& ex)
         {
-            delete[] rcdata;
-            const char* message = CopyCStringToHeap(ex.what());
-            return GetRcDataResult {nullptr, message };
+            return GetRcDataResult { nullptr, CopyCStringToHeap(ex.what()) };
         }
 
-        return GetRcDataResult { rcdata, nullptr };
+        return GetRcDataResult { rcdata.release(), nullptr };
     }
 
     LIEF_SYS_EXPORT void DeallocateRcData(const uint8_t* rcdata){
@@ -242,17 +325,16 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult{ static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
         }
 
-        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetStringResult GetString(ResourceManager* _this, const uint32_t resource_id,  size_t* const string_size) {
         auto* resources_manager = reinterpret_cast<PE::ResourcesManager*>(_this);
 
-        uint16_t* string = nullptr;
+        std::unique_ptr<uint16_t[]> string = nullptr;
 
         try
         {
@@ -268,33 +350,25 @@ extern "C"
                         return node.id() == string_dir_id;
                     });
 
-            if(string_table_dir_node == std::cend(root_childs)) {
-                const char* message = CopyCStringToHeap("Failed to find string table dir node in string table root node");
-                return GetStringResult{ nullptr, message};
-            }
+            if(string_table_dir_node == std::cend(root_childs))
+                return GetStringResult{ nullptr, CopyCStringToHeap("Failed to find string table dir node in string table root node") };
 
             auto dir_childs = string_table_dir_node->childs();
-            if(dir_childs.size() == 0) {
-                const char* message = CopyCStringToHeap("There is no children in dir string table node");
-                return GetStringResult{ nullptr, message };
-            }
-
+            if(dir_childs.size() == 0)
+                return GetStringResult{ nullptr, CopyCStringToHeap("There is no children in dir string table node") };
 
             const auto* string_table_data_node = static_cast<PE::ResourceData*>(&dir_childs[0]);
-            if(string_table_data_node == nullptr) {
-                const char* message = CopyCStringToHeap("String table first children is not ResourceData type");
-                return GetStringResult{ nullptr, message };
-            }
-
+            if(string_table_data_node == nullptr)
+                return GetStringResult{ nullptr, CopyCStringToHeap("String table first children is not ResourceData type") };
 
             const auto& content = string_table_data_node->content();
-            if(content.size() < 2 * gMaxStringsCount) {
-                const char* message = CopyCStringToHeap("String table resource data size is less that 32 bytes");
-                return GetStringResult{ nullptr, message };
-            }
-
+            if(content.size() < 2 * gMaxStringsCount)
+                return GetStringResult{ nullptr, CopyCStringToHeap("String table resource data size is less that 32 bytes") };
 
             size_t blockId = 2 * (static_cast<uint32_t>(resource_id) % gMaxStringsCount);
+
+            if (string_size == nullptr)
+                return GetStringResult{ nullptr, CopyCStringToHeap("Out variable string_size is a null pointer") };
 
             *string_size = content[blockId];
 
@@ -302,18 +376,16 @@ extern "C"
             std::u16string u16string(reinterpret_cast<const uint16_t*>(content.data() + offset),
                                         reinterpret_cast<const uint16_t*>(content.data() + offset +  2 * *string_size));
 
-            string = new uint16_t[*string_size];
+            string.reset(new uint16_t[*string_size]);
 
-            std::copy(std::cbegin(u16string), std::cend(u16string), string);
+            std::copy(std::cbegin(u16string), std::cend(u16string), string.get());
         }
         catch(const std::exception& ex)
         {
-            delete[] string;
-            const char* message = CopyCStringToHeap(ex.what());
-            return GetStringResult{ nullptr, message };
+            return GetStringResult{ nullptr, CopyCStringToHeap(ex.what()) };
         }
 
-        return GetStringResult{ string, nullptr };
+        return GetStringResult{ string.release(), nullptr };
     }
 
     LIEF_SYS_EXPORT void DeallocateString(const uint16_t* string) {
@@ -327,7 +399,7 @@ extern "C"
         {
             if(!resources_manager->has_icons()) {
                 const char* message = CopyCStringToHeap("The executable have no icons");
-                return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+                return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), message };
             }
 
             PE::ResourceIcon icon = CreateIconFromRawData(data, data_size);
@@ -380,22 +452,20 @@ extern "C"
         }
         catch(const std::exception& ex)
         {
-            const char* message = CopyCStringToHeap(ex.what());
-            return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::ERROR), message };
+            return StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Err), CopyCStringToHeap(ex.what()) };
         }
 
-        return  StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::OK), nullptr };
+        return  StatusResult {static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
     }
 
     LIEF_SYS_EXPORT GetIconResult GetIcon(ResourceManager* _this, uint32_t width, uint32_t height, size_t* pixels_data_size) {
         auto* resources_manager = reinterpret_cast<PE::ResourcesManager*>(_this);
 
-        uint8_t* icon_pixels = nullptr;
+        std::unique_ptr<uint8_t[]> icon_pixels = nullptr;
         try
         {
             if(!resources_manager->has_icons()) {
-                const char* message = CopyCStringToHeap("The executable have no icons");
-                return GetIconResult{ nullptr, message };
+                return GetIconResult{ nullptr, CopyCStringToHeap("The executable have no icons") };
             }
 
             auto icons = resources_manager->icons();
@@ -410,30 +480,29 @@ extern "C"
                         return icon.width() == icon_width && icon.height() ==  icon_height;
                     });
 
-            if(icon == std::cend(icons)) {
-                const char* message = CopyCStringToHeap("There is not an icons with specified width and height");
-                return GetIconResult{ nullptr, message };
-            }
+            if(icon == std::cend(icons))
+                return GetIconResult{ nullptr, CopyCStringToHeap("There is not an icons with specified width and height") };
+
 
             auto pixels = icon->pixels();
-            if(pixels.size() == 0) {
-                const char* message = CopyCStringToHeap("The Icon with specified width and height don't have pixels");
-                return GetIconResult{ nullptr, message };
-            }
+            if(pixels.size() == 0)
+                return GetIconResult{ nullptr, CopyCStringToHeap("The Icon with specified width and height don't have pixels") };
 
-            icon_pixels = new uint8_t[pixels.size()];
+            icon_pixels.reset(new uint8_t[pixels.size()]);
 
-            std::copy(std::cbegin(pixels), std::cend(pixels), icon_pixels);
+            std::copy(std::cbegin(pixels), std::cend(pixels), icon_pixels.get());
+
+            if(pixels_data_size == nullptr)
+                return GetIconResult{ nullptr, CopyCStringToHeap("Out variable pixels_data_size is a null pointer") };
+
             *pixels_data_size = pixels.size();
         }
         catch(const std::exception& ex)
         {
-            delete[] icon_pixels;
-            const char* message = CopyCStringToHeap(ex.what());
-            return GetIconResult { nullptr, message };
+            return GetIconResult { nullptr, CopyCStringToHeap(ex.what()) };
         }
 
-        return GetIconResult { icon_pixels, nullptr };
+        return GetIconResult { icon_pixels.release(), nullptr };
     }
 
     LIEF_SYS_EXPORT void DeallocateIcon(const uint8_t* icon_data) {
@@ -448,7 +517,6 @@ extern "C"
 PE::ResourceIcon CreateIconFromRawData(const uint8_t* data, size_t data_size) {
     if(data_size < sizeof(PE::pe_resource_icon_dir))
         throw std::out_of_range("Icon data size is less than pe_resource_icon_dir size");
-
 
     const auto* icon_header = reinterpret_cast<const PE::pe_icon_header*>(data + sizeof(PE::pe_resource_icon_dir));
     PE::ResourceIcon icon{icon_header};

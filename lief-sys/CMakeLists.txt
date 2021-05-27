@@ -16,7 +16,7 @@ set(LIB_LIEF
 
 set(LIEF_GIT_URL "https://github.com/lief-project/LIEF.git")
 
-set(LIEF_VERSION 0.10.0)
+set(LIEF_VERSION 0.11.0)
 
 set(LIEF_CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>

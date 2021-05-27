@@ -12,8 +12,8 @@ use picky::{
     key::{self, PrivateKey},
     pem::{self, Pem},
     x509::{
-        pkcs7::{self, Pkcs7},
-        wincert::WinCertificateError,
+        pkcs7::{Pkcs7, Pkcs7Error},
+        wincert::{SHAVariant, WinCertificate, WinCertificateError},
     },
 };
 use thiserror::Error;
@@ -23,7 +23,6 @@ use lief_sys as lief;
 use lief_sys::CResult;
 
 pub use picky::hash::HashAlgorithm;
-use picky::hash::HashAlgorithm::SHA2_256;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -78,9 +77,9 @@ pub enum AuthenticodeError {
     #[error(transparent)]
     KeyError(#[from] key::KeyError),
     #[error(transparent)]
-    CertError(#[from] pkcs7::Pkcs7Error),
+    WinCertificateError(#[from] WinCertificateError),
     #[error(transparent)]
-    WinCertificateEncodeError(#[from] WinCertificateError),
+    Pkcs7Error(#[from] Pkcs7Error),
 }
 
 bitflags! {
@@ -162,7 +161,7 @@ impl Binary {
 
         let pem = Pem::read_from(&mut BufReader::new(Cursor::new(certificate)))
             .map_err(AuthenticodeError::PemError)?;
-        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::CertError)?;
+        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::Pkcs7Error)?;
 
         let mut hash_len: usize = 0;
 
@@ -184,13 +183,18 @@ impl Binary {
             file_hash
         };
 
-        let wincert = pkcs7_certfile
-            .into_win_certificate(file_hash.as_ref(), SHA2_256, &private_key, program_name)
-            .map_err(AuthenticodeError::CertError)?;
+        let wincert = WinCertificate::new(
+            pkcs7_certfile,
+            file_hash.as_ref(),
+            SHAVariant::SHA2_256,
+            &private_key,
+            program_name,
+        )
+        .map_err(AuthenticodeError::WinCertificateError)?;
 
         let data = wincert
             .encode()
-            .map_err(AuthenticodeError::WinCertificateEncodeError)?;
+            .map_err(AuthenticodeError::WinCertificateError)?;
 
         let cresult = unsafe { lief::SetAuthenticode(self.handle, data.as_ptr(), data.len()) };
 

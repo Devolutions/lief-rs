@@ -59,4 +59,7 @@ extern "C" {
     pub fn DeallocateIcon(pixels: *const u8);
     pub fn DeallocateMessage(message: *const c_char);
     pub fn DeallocateFileHash(file_hash: *const u8);
+
+    pub fn EnableLogging(log_level: i32);
+    pub fn DisableLogging();
 }

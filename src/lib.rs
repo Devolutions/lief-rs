@@ -109,6 +109,16 @@ bitflags! {
     }
 }
 
+#[repr(i32)]
+pub enum LogLevel {
+    LogTrace = 0,
+    LogDebug = 1,
+    LogInfo = 2,
+    LogWarn = 3,
+    LogErr = 4,
+    LogCritical = 5,
+}
+
 pub type LiefResult<T> = Result<T, LiefError>;
 
 pub struct Binary {
@@ -401,6 +411,19 @@ impl Drop for Binary {
         unsafe {
             lief::Binary_Free(self.handle);
         }
+    }
+}
+
+pub fn enable_logging(log_level: LogLevel) {
+    unsafe {
+        lief::EnableLogging(log_level as i32);
+    }
+}
+
+// LIEF still could logging if wasn't enable_logging, but `lief_logging_support` was enabled. You should disable logging by hand if you don't need logs.
+pub fn disable_logging() {
+    unsafe  {
+        lief::DisableLogging();
     }
 }
 

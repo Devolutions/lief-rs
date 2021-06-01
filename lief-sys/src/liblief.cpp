@@ -46,8 +46,6 @@ extern "C"
 {
     LIEF_SYS_EXPORT BinaryResult Binary_New(const char* path) {
         std::unique_ptr<PE::Binary> binary;
-        logging::enable();
-        logging::set_level(logging::LOGGING_LEVEL::LOG_INFO);
 
         try
         {
@@ -511,6 +509,15 @@ extern "C"
 
     LIEF_SYS_EXPORT void DeallocateMessage(const char* message) {
         delete[] message;
+    }
+
+    LIEF_SYS_EXPORT void EnableLogging(int log_level) {
+        logging::enable();
+        logging::set_level(static_cast<logging::LOGGING_LEVEL>(log_level));
+    }
+
+    LIEF_SYS_EXPORT void DisableLogging() {
+        logging::disable();
     }
 }
 

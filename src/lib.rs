@@ -420,7 +420,7 @@ pub fn enable_logging(log_level: LogLevel) {
     }
 }
 
-// LIEF still could logging if wasn't enable_logging, but `lief_logging_support` was enabled. You should disable logging by hand if you don't need logs.
+// You should call this function if you don't need logs
 pub fn disable_logging() {
     unsafe  {
         lief::DisableLogging();

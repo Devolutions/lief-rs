@@ -20,26 +20,27 @@ set(LIEF_VERSION 0.11.0)
 
 set(LIEF_CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DLIEF_PE=on
-        -DLIEF_LOGGING=on
-        -DLIEF_ELF=on
-        -DLIEF_MACHO=off
-        -DLIEF_PYTHON_API=off
-        -DLIEF_ENABLE_JSON=off
-        -DLIEF_EXAMPLES=off
-        -DLIEF_DOC=off
-        -DLIEF_COVERAGE=off
-        -DLIEF_EXTRA_WARNINGS=off
-        -DLIEF_ASAN=off
-        -DLIEF_LSAN=off
-        -DLIEF_TSAN=off
-        -DLIEF_FUZZING=off
-        -DLIEF_PROFILING=off
-        -DLIEF_FROZEN_ENABLED=off
-        -DLIEF_INSTALL_COMPILED_EXAMPLES=off
+        -DLIEF_PE=ON
+        -DLIEF_LOGGING=ON
+        -DLIEF_ELF=ON
+        -DLIEF_MACHO=OFF
+        -DLIEF_PYTHON_API=OFF
+        -DLIEF_ENABLE_JSON=OFF
+        -DLIEF_EXAMPLES=OFF
+        -DLIEF_DOC=OFF
+        -DLIEF_COVERAGE=OFF
+        -DLIEF_EXTRA_WARNINGS=OFF
+        -DLIEF_ASAN=OFF
+        -DLIEF_LSAN=OFF
+        -DLIEF_TSAN=OFF
+        -DLIEF_FUZZING=OFF
+        -DLIEF_PROFILING=OFF
+        -DLIEF_FROZEN_ENABLED=OFF
+        -DLIEF_INSTALL_COMPILED_EXAMPLES=OFF
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        -DCCACHE=off
+        -DBUILD_SHARED_LIBS=OFF
+        -DCCACHE=OFF
         )
 
 if(MSVC)
@@ -60,7 +61,7 @@ ExternalProject_Add(LIEF
         UPDATE_COMMAND   ""
         )
 
-add_library(LIEF_SYS SHARED src/liblief.cpp)
+add_library(LIEF_SYS src/liblief.cpp)
 
 if(MSVC)
     target_compile_options(LIEF_SYS PUBLIC /FIiso646.h)

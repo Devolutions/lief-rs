@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = [ "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>" ]
 edition = "2018"
 build = "build.rs"
-links = "LIEF_SYS"
 
 [build-dependencies]
 cmake = "0.1.45"

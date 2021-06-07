@@ -71,10 +71,8 @@ if(MSVC)
     endif()
 endif()
 
-
 target_include_directories(LIEF_SYS PUBLIC ${LIEF_INCLUDE_DIRS})
 
 target_link_libraries(LIEF_SYS PUBLIC ${LIB_LIEF})
 
 add_dependencies(LIEF_SYS LIEF)
-

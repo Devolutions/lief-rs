@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let install_dir = Config::new(".")
+        .define("BUILD_SHARED_LIBS", "OFF")
         .static_crt(false)
         .no_build_target(true)
         .build();
@@ -31,6 +32,6 @@ fn main() {
         );
     }
 
-    println!("cargo:rustc-link-lib=dylib=LIEF_SYS");
+    println!("cargo:rustc-link-lib=static=LIEF_SYS");
     println!("cargo:root={}", install_dir.to_str().unwrap());
 }

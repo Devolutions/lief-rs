@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 
 include(ExternalProject)
 
-project(LIEF_SYS LANGUAGES CXX)
+project(lief-sys LANGUAGES CXX)
 
 set(LIEF_PREFIX       "${CMAKE_CURRENT_BINARY_DIR}/LIEF")
 set(LIEF_INSTALL_DIR  "${LIEF_PREFIX}")
@@ -11,8 +11,11 @@ set(LIEF_INCLUDE_DIRS "${LIEF_PREFIX}/include")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(LIB_LIEF
-        "${LIEF_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}LIEF${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/lib")
+
+set(LIB_LIEF "${LIEF_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}LIEF${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
 set(LIEF_GIT_URL "https://github.com/lief-project/LIEF.git")
 
@@ -61,19 +64,19 @@ ExternalProject_Add(LIEF
         UPDATE_COMMAND   ""
         )
 
-add_library(LIEF_SYS src/liblief.cpp)
+add_library(lief-sys src/liblief.cpp)
 
 if(MSVC)
-    target_compile_options(LIEF_SYS PUBLIC /FIiso646.h)
+    target_compile_options(lief-sys PUBLIC /FIiso646.h)
     if(${CMAKE_BUILD_TYPE} MATCHES "Release")
-        set_property(TARGET LIEF_SYS PROPERTY MSVC_RUNTIME_LIBRARY "/MT")
+        set_property(TARGET lief-sys PROPERTY MSVC_RUNTIME_LIBRARY "/MT")
     else()
-        set_property(TARGET LIEF_SYS PROPERTY MSVC_RUNTIME_LIBRARY "/MTd")
+        set_property(TARGET lief-sys PROPERTY MSVC_RUNTIME_LIBRARY "/MTd")
     endif()
 endif()
 
-target_include_directories(LIEF_SYS PUBLIC ${LIEF_INCLUDE_DIRS})
+target_include_directories(lief-sys PUBLIC ${LIEF_INCLUDE_DIRS})
 
-target_link_libraries(LIEF_SYS PUBLIC ${LIB_LIEF})
+target_link_libraries(lief-sys PUBLIC ${LIB_LIEF})
 
-add_dependencies(LIEF_SYS LIEF)
+add_dependencies(lief-sys LIEF)

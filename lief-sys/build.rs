@@ -1,6 +1,10 @@
+use std::env;
 use cmake::Config;
 
 fn main() {
+    let profile = env::var("PROFILE").unwrap();
+    let cmake_build_type = if profile == "debug" { "Debug" } else { "Release" };
+
     println!("cargo:rerun-if-changed=CMakeLists.txt");
     println!("cargo:rerun-if-changed=src/liblief.cpp");
     println!("cargo:rerun-if-changed=build.rs");
@@ -11,27 +15,20 @@ fn main() {
         .no_build_target(true)
         .build();
 
-    let lib_path = install_dir.join("build");
+    // main LIEF library
+    let lief_lib_path = install_dir.join("build").join("LIEF").join("lib");
+    println!("cargo:rustc-link-search=native={}", lief_lib_path.to_str().unwrap());
+    println!("cargo:rustc-link-lib=static=LIEF");
+
+    // lief-sys library
+    let mut lib_path = install_dir.join("build").join("lib");
 
     if cfg!(windows) {
-        let _build_dir_postfix = if cfg!(debug_assertions) {
-            "Debug"
-        } else {
-            "Release"
-        };
-
-        println!(
-            "cargo:rustc-link-search=native={}/{}",
-            lib_path.to_str().unwrap(),
-            _build_dir_postfix
-        );
-    } else {
-        println!(
-            "cargo:rustc-link-search=native={}",
-            lib_path.to_str().unwrap(),
-        );
+        lib_path = lib_path.join(cmake_build_type);
     }
 
-    println!("cargo:rustc-link-lib=static=LIEF_SYS");
+    println!("cargo:rustc-link-search=native={}", lib_path.to_str().unwrap());
+    println!("cargo:rustc-link-lib=static=lief-sys");
+
     println!("cargo:root={}", install_dir.to_str().unwrap());
 }

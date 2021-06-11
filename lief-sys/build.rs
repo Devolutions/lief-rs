@@ -2,6 +2,7 @@ use std::env;
 use cmake::Config;
 
 fn main() {
+    let target = env::var("TARGET").unwrap();
     let profile = env::var("PROFILE").unwrap();
     let cmake_build_type = if profile == "debug" { "Debug" } else { "Release" };
 
@@ -29,6 +30,13 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", lib_path.to_str().unwrap());
     println!("cargo:rustc-link-lib=static=lief-sys");
+
+    // link to C++ runtime
+    if target.contains("linux") {
+        println!("cargo:rustc-link-lib=dylib=stdc++");
+    } else if target.contains("apple") {
+        println!("cargo:rustc-link-lib=dylib=c++");
+    }
 
     println!("cargo:root={}", install_dir.to_str().unwrap());
 }

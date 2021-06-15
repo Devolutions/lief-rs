@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.15)
+cmake_policy(SET CMP0091 NEW)
 
 include(ExternalProject)
 
@@ -40,6 +41,8 @@ set(LIEF_CMAKE_ARGS
         -DLIEF_PROFILING=OFF
         -DLIEF_FROZEN_ENABLED=OFF
         -DLIEF_INSTALL_COMPILED_EXAMPLES=OFF
+        -DLIEF_USE_CRT_DEBUG=MTd
+        -DLIEF_USE_CRT_RELEASE=MT
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         -DBUILD_SHARED_LIBS=OFF
@@ -68,11 +71,7 @@ add_library(lief-sys src/liblief.cpp)
 
 if(MSVC)
     target_compile_options(lief-sys PUBLIC /FIiso646.h)
-    if(${CMAKE_BUILD_TYPE} MATCHES "Release")
-        set_property(TARGET lief-sys PROPERTY MSVC_RUNTIME_LIBRARY "/MT")
-    else()
-        set_property(TARGET lief-sys PROPERTY MSVC_RUNTIME_LIBRARY "/MTd")
-    endif()
+    set_property(TARGET lief-sys PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 target_include_directories(lief-sys PUBLIC ${LIEF_INCLUDE_DIRS})

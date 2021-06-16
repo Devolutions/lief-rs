@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include <numeric>
 #include <vector>
-#include <iostream>
 
 #include "LIEF/PE.hpp"
 #include "LIEF/logging.hpp"

@@ -550,14 +550,10 @@ void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id) {
     if(dir_node == std::cend(childs))
         return;
 
-    auto data_nodes = dir_node->childs();
-    std::for_each(
-            std::begin(data_nodes),
-            std::end(data_nodes),
-            [&](const auto& data_node)
-            {
-                dir_node->delete_child(data_node);
-            });
+    while (dir_node->childs().size() != 0) {
+        auto child = dir_node->childs();
+        dir_node->delete_child(*child);
+    }
 
     root.delete_child(*dir_node);
 }

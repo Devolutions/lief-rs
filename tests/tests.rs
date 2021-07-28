@@ -438,6 +438,17 @@ fn get_authenticode_data() {
 }
 
 #[test]
+fn get_authenticode_data_from_unsigned_binary() {
+    let binary = PathBuf::from(BINARY_PATH);
+
+    let binary = Binary::new(binary).unwrap();
+
+    let authenticode_data = binary.get_authenticode_data();
+
+    assert_eq!(authenticode_data.unwrap_err().to_string(), r#"Failed to get Authenticode signature data(Some("File is not digital signed"))"#)
+}
+
+#[test]
 fn verify_signature_default() {
     let binary = Binary::new(PathBuf::from(BINARY_PATH)).unwrap();
     let cert = read_file_into_vec(PathBuf::from(CERTIFICATE_WITH_ROOT_CHAIN));

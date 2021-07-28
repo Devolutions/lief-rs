@@ -177,13 +177,11 @@ extern "C"
                 const uint64_t end_cert_offset   = start_cert_offset + certificate_table.size();
 
                 const auto& overlay = binary->overlay();
+                data.reset(new uint8_t[certificate_table.size()]);
                 if (end_cert_offset <= overlay.size()) {
-                    data.reset(new uint8_t[certificate_table.size()]);
-
+                    // if Authenticode signature within some range in overlay
                     std::copy(overlay.data() + start_cert_offset, overlay.data() + end_cert_offset, data.get());
                 } else {
-                    data.reset(new uint8_t[certificate_table.size()]);
-
                     std::copy(std::cbegin(overlay), std::cend(overlay), data.get());
                 }
 

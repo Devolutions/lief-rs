@@ -498,19 +498,15 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
         let CResult { value, .. } = cresult;
         Ok(value)
     } else {
-        let message = unsafe {
-            let message = CStr::from_ptr(cresult.message);
-            lief::DeallocateMessage(cresult.message);
-            message
-        };
+        let message = unsafe { CStr::from_ptr(cresult.message) };
 
-        let message = message
-            .to_str()
+        let message = message.to_str()
             .map_err(|err| LiefError::Other {
                 description: format!("Failed to convert CStr error message to &str: {}", err),
             })?
             .to_owned();
 
+        unsafe { lief::DeallocateMessage(cresult.message); }
         Err(LiefError::CError(message))
     }
 }

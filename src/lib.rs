@@ -205,7 +205,7 @@ impl Binary {
 
         let authenticode_signature = AuthenticodeSignature::new(
             &pkcs7_certfile,
-            file_hash.as_ref(),
+            file_hash,
             ShaVariant::SHA2_256,
             &private_key,
             program_name,

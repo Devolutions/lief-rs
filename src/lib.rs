@@ -505,9 +505,14 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
                 description: format!("Failed to convert CStr error message to &str: {}", err),
             });
 
+        let result = match message {
+            Ok(message) => Err(LiefError::CError(message.to_owned())),
+            Err(err) => Err(err),
+        };
+
         unsafe { lief::DeallocateMessage(cresult.message); }
 
-        Err(LiefError::CError(message?.to_owned()))
+        result
     }
 }
 

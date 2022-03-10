@@ -70,21 +70,21 @@ pub enum LiefError {
 #[derive(Debug, Error)]
 pub enum AuthenticodeError {
     #[error("Failed to get authenticode file hash({0:?})")]
-    FileHashError(Option<String>),
+    FileHash(Option<String>),
     #[error("Failed to set authenticode({0:?})")]
-    SetAuthenticodeError(Option<String>),
+    SetAuthenticode(Option<String>),
     #[error("Failed to check signature({0:?})")]
-    SignatureCheckError(Option<String>),
+    SignatureCheck(Option<String>),
     #[error(transparent)]
-    PemError(#[from] pem::PemError),
+    Pem(#[from] pem::PemError),
     #[error(transparent)]
-    KeyError(#[from] key::KeyError),
+    Key(#[from] key::KeyError),
     #[error(transparent)]
-    WinCertificateError(#[from] WinCertificateError),
+    PickyAuthenticode(#[from] authenticode::AuthenticodeError),
     #[error(transparent)]
-    PickyAuthenticodeError(#[from] authenticode::AuthenticodeError),
+    WinCertificate(#[from] WinCertificateError),
     #[error(transparent)]
-    Pkcs7Error(#[from] Pkcs7Error),
+    Pkcs7(#[from] Pkcs7Error),
 }
 
 bitflags! {
@@ -166,11 +166,11 @@ impl Binary {
             let cresult = lief::GetFileHash(self.handle, &mut hash_len);
 
             let file_hash_pointer = cresult_into_lief_result(cresult)
-                .map_err(|err| AuthenticodeError::FileHashError(Some(err.to_string())))?;
+                .map_err(|err| AuthenticodeError::FileHash(Some(err.to_string())))?;
 
             if file_hash_pointer.is_null() || hash_len == 0 {
                 lief::DeallocateFileHash(file_hash_pointer);
-                return Err(AuthenticodeError::FileHashError(None).into());
+                return Err(AuthenticodeError::FileHash(None).into());
             }
 
             let file_hash = slice::from_raw_parts(file_hash_pointer, hash_len).to_vec();
@@ -194,34 +194,34 @@ impl Binary {
         program_name: Option<String>,
     ) -> LiefResult<()> {
         let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
-            .map_err(AuthenticodeError::PemError)?;
-        let private_key = PrivateKey::from_pem(&pem).map_err(AuthenticodeError::KeyError)?;
+            .map_err(AuthenticodeError::Pem)?;
+        let private_key = PrivateKey::from_pem(&pem).map_err(AuthenticodeError::Key)?;
 
         let pem = Pem::read_from(&mut BufReader::new(Cursor::new(certificate)))
-            .map_err(AuthenticodeError::PemError)?;
-        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::Pkcs7Error)?;
+            .map_err(AuthenticodeError::Pem)?;
+        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::Pkcs7)?;
 
         let file_hash = self.get_file_hash_sha256()?;
 
-        let authenticode_signature = AuthenticodeSignature::new(
+        let signature = AuthenticodeSignature::new(
             &pkcs7_certfile,
             file_hash,
             ShaVariant::SHA2_256,
             &private_key,
             program_name,
         )
-        .map_err(AuthenticodeError::PickyAuthenticodeError)?
-        .to_der()
-        .map_err(AuthenticodeError::PickyAuthenticodeError)?;
+        .map_err(AuthenticodeError::PickyAuthenticode)?;
 
-        let wincert = WinCertificate::from_certificate(
-            authenticode_signature,
-            CertificateType::WinCertTypePkcsSignedData,
-        );
+        let signature = signature
+            .to_der()
+            .map_err(AuthenticodeError::PickyAuthenticode)?;
+
+        let wincert =
+            WinCertificate::from_certificate(signature, CertificateType::WinCertTypePkcsSignedData);
 
         let data = wincert
             .encode()
-            .map_err(AuthenticodeError::WinCertificateError)?;
+            .map_err(AuthenticodeError::WinCertificate)?;
 
         self.set_authenticode_data(data)
     }
@@ -230,7 +230,7 @@ impl Binary {
         let cresult = unsafe { lief::SetAuthenticode(self.handle, data.as_ptr(), data.len()) };
 
         let status_code = cresult_into_lief_result(cresult)
-            .map_err(|err| AuthenticodeError::SetAuthenticodeError(Some(err.to_string())))?;
+            .map_err(|err| AuthenticodeError::SetAuthenticode(Some(err.to_string())))?;
 
         ffi_status_code_to_lief_result(status_code)
     }
@@ -260,10 +260,10 @@ impl Binary {
         let cresult = unsafe { lief::CheckSignature(self.handle, checks.bits) };
 
         let verification_flags = cresult_into_lief_result(cresult)
-            .map_err(|err| AuthenticodeError::SignatureCheckError(Some(err.to_string())))?;
+            .map_err(|err| AuthenticodeError::SignatureCheck(Some(err.to_string())))?;
 
         VerificationFlags::from_bits(verification_flags)
-            .ok_or_else(|| AuthenticodeError::SignatureCheckError(None).into())
+            .ok_or_else(|| AuthenticodeError::SignatureCheck(None).into())
     }
 
     pub fn resource_manager(&self) -> LiefResult<ResourceManager> {
@@ -382,13 +382,15 @@ impl ResourceManager {
         for icon_size in ICONS_SIZES.iter() {
             let resized_icon_data = icon.resize_exact(*icon_size, *icon_size, FilterType::Lanczos3);
 
-            let mut resized_icon = Vec::new();
+            let mut resized_icon = io::Cursor::new(Vec::new());
 
             resized_icon_data
                 .write_to(&mut resized_icon, ImageOutputFormat::Ico)
                 .map_err(|err| LiefError::Other {
                     description: format!("Failed to encode resized icon: {}", err),
                 })?;
+
+            let resized_icon = resized_icon.into_inner();
 
             let cresult = unsafe {
                 lief::ReplaceIcon(self.handle, resized_icon.as_ptr(), resized_icon.len())
@@ -437,14 +439,15 @@ impl ResourceManager {
                 description: format!("Failed to create an icon from memory: {}", err),
             })?;
 
-        let mut buffer = Vec::new();
+        let mut buffer = io::Cursor::new(Vec::new());
+
         image_buffer
             .write_to(&mut buffer, ImageOutputFormat::Ico)
             .map_err(|err| LiefError::Other {
                 description: format!("Failed to encode an icon: {}", err),
             })?;
 
-        Ok(buffer)
+        Ok(buffer.into_inner())
     }
 }
 
@@ -500,17 +503,18 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
     } else {
         let message = unsafe { CStr::from_ptr(cresult.message) };
 
-        let message = message.to_str()
-            .map_err(|err| LiefError::Other {
-                description: format!("Failed to convert CStr error message to &str: {}", err),
-            });
+        let message = message.to_str().map_err(|err| LiefError::Other {
+            description: format!("Failed to convert CStr error message to &str: {}", err),
+        });
 
         let result = match message {
             Ok(message) => Err(LiefError::CError(message.to_owned())),
             Err(err) => Err(err),
         };
 
-        unsafe { lief::DeallocateMessage(cresult.message); }
+        unsafe {
+            lief::DeallocateMessage(cresult.message);
+        }
 
         result
     }

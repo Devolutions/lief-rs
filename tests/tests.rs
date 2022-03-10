@@ -27,9 +27,9 @@ lazy_static! {
 fn read_icon_into_vector(icon_path: PathBuf) -> Vec<u8> {
     let icon = image::open(icon_path).unwrap();
 
-    let mut buffer = Vec::new();
+    let mut buffer = std::io::Cursor::new(Vec::new());
     icon.write_to(&mut buffer, ImageOutputFormat::Ico).unwrap();
-    buffer
+    buffer.into_inner()
 }
 
 fn read_file_into_vec(file: PathBuf) -> Vec<u8> {

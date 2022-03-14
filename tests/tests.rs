@@ -1,6 +1,8 @@
 use image::ImageOutputFormat;
 use lazy_static::lazy_static;
 use lief::{Binary, VerificationChecks, VerificationFlags};
+use picky::x509::pkcs7::Pkcs7;
+use picky::x509::wincert::WinCertificate;
 use std::{fs::File, io::Read, path::PathBuf, str::FromStr};
 use tempfile::{tempdir, TempDir};
 use uuid::Uuid;
@@ -405,6 +407,45 @@ fn setting_authenticode_increase_output_binary_size() {
     let output_size = signed_binary.metadata().unwrap().len();
 
     assert!(output_size > initial_size);
+}
+
+#[test]
+fn get_authenticode_data() {
+    let binary = PathBuf::from(BINARY_PATH);
+
+    let binary = Binary::new(binary).unwrap();
+    let cert = read_file_into_vec(PathBuf::from(CERTIFICATE_WITH_ROOT_CHAIN));
+    let key = read_file_into_vec(PathBuf::from(PRIVATE_KEY));
+
+    binary
+        .set_authenticode(
+            cert,
+            key,
+            Some(String::from(
+                "setting_authenticode_increase_output_binary_size",
+            )),
+        )
+        .unwrap();
+
+    let signed_binary = TEMP_DIR.path().join(format!("{}.exe", Uuid::new_v4()));
+    binary.build(signed_binary.clone(), false).unwrap();
+
+    let signed_binary = Binary::new(signed_binary).unwrap();
+    let authenticode_data = signed_binary.get_authenticode_data().unwrap();
+    let wincert = WinCertificate::decode(&authenticode_data).unwrap();
+    let authenticode_signature = Pkcs7::from_der(wincert.get_certificate());
+    assert!(authenticode_signature.is_ok())
+}
+
+#[test]
+fn get_authenticode_data_from_unsigned_binary() {
+    let binary = PathBuf::from(BINARY_PATH);
+
+    let binary = Binary::new(binary).unwrap();
+
+    let authenticode_data = binary.get_authenticode_data();
+
+    assert_eq!(authenticode_data.unwrap_err().to_string(), r#"Failed to get Authenticode signature data(Some("File is not digital signed"))"#)
 }
 
 #[test]

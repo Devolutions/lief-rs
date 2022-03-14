@@ -19,6 +19,7 @@ extern "C" {
         cert_data: *const u8,
         cert_data_len: usize,
     ) -> CResult<c_uint>;
+    pub fn GetAuthenticodeData(this: Binary, data_size: *mut usize) -> CResult<*const u8>;
     pub fn CheckSignature(this: Binary, checks: i32) -> CResult<i32>;
     pub fn Binary_GetResourceManager(this: Binary) -> CResult<ResourceManager>;
     pub fn Binary_Free(this: Binary);
@@ -59,7 +60,7 @@ extern "C" {
     pub fn DeallocateIcon(pixels: *const u8);
     pub fn DeallocateMessage(message: *const c_char);
     pub fn DeallocateFileHash(file_hash: *const u8);
-
+    pub fn DeallocateAuthenticode(data: *const u8);
     pub fn EnableLogging(log_level: i32);
     pub fn DisableLogging();
 }

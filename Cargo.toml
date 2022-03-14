@@ -13,7 +13,7 @@ path = "src/lib.rs"
 bitflags = "1.2"
 image = { version = "0.23", default-features = false, features = [ "ico" ] }
 lief-sys = { path = "lief-sys" }
-picky = { git = "https://github.com/Devolutions/picky-rs.git", rev = "3834f9", default-features = false,  features = ["wincert"] }
+picky = { git = "https://github.com/Devolutions/picky-rs.git", rev = "a0a0d1", features = ["wincert", "pkcs7"] }
 thiserror = "1.0"
 widestring = { version = "0.4", default-features = false, features = ["alloc"] }
 

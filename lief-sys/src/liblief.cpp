@@ -37,6 +37,7 @@ Result(ResourceManager*, ResourceManagerResult);
 Result(uint8_t*, GetRcDataResult);
 Result(uint16_t*, GetStringResult);
 Result(uint8_t*, GetIconResult);
+Result(uint8_t*, GetAuthenticodeDataResult);
 
 PE::ResourceIcon CreateIconFromRawData(const uint8_t* data, size_t data_size);
 void DeleteRootNodeChilds(PE::ResourceNode& root, uint32_t dir_node_id);
@@ -152,6 +153,53 @@ extern "C"
         }
 
         return StatusResult { static_cast<unsigned int>(LIEF_SYS_STATUS::Ok), nullptr };
+    }
+
+    LIEF_SYS_EXPORT GetAuthenticodeDataResult GetAuthenticodeData(Binary* _this, size_t* data_size) {
+        auto* binary = reinterpret_cast<PE::Binary*>(_this);
+
+        std::unique_ptr<uint8_t []> data = nullptr;
+        try
+        {
+            PE::DataDirectory& certificate_table = binary->data_directory(PE::DATA_DIRECTORY::CERTIFICATE_TABLE);
+
+            auto it_sections = binary->sections();
+            const uint64_t overlay_offset = std::accumulate(
+                    std::cbegin(it_sections),
+                    std::cend(it_sections), 0,
+                    [] (uint64_t offset, const PE::Section& section) {
+                        return std::max<uint64_t>(section.offset() + section.size(), offset);
+                    });
+
+            if (certificate_table.RVA() > 0 && certificate_table.size() > 0 && certificate_table.RVA() >= overlay_offset)
+            {
+                const uint64_t start_cert_offset = certificate_table.RVA() - overlay_offset;
+                const uint64_t end_cert_offset   = start_cert_offset + certificate_table.size();
+
+                const auto& overlay = binary->overlay();
+                data.reset(new uint8_t[certificate_table.size()]);
+                if (end_cert_offset <= overlay.size()) {
+                    // if Authenticode signature within some range in overlay
+                    std::copy(overlay.data() + start_cert_offset, overlay.data() + end_cert_offset, data.get());
+                } else {
+                    std::copy(std::cbegin(overlay), std::cend(overlay), data.get());
+                }
+
+                if(data_size == nullptr)
+                    return GetAuthenticodeDataResult{ nullptr, CopyCStringToHeap("Out variable data_size is a null pointer") };
+
+                *data_size = certificate_table.size();
+            }
+            else
+                return GetAuthenticodeDataResult{ nullptr, CopyCStringToHeap("File is not digital signed") };
+        }
+        catch(const std::exception& ex)
+        {
+            return GetAuthenticodeDataResult{ nullptr,  CopyCStringToHeap(ex.what()) };
+        }
+
+
+        return GetAuthenticodeDataResult{ data.release() , nullptr };
     }
 
     LIEF_SYS_EXPORT SignatureVeryficationResult CheckSignature(Binary* _this, int checks) {
@@ -509,6 +557,10 @@ extern "C"
 
     LIEF_SYS_EXPORT void DeallocateMessage(const char* message) {
         delete[] message;
+    }
+
+    LIEF_SYS_EXPORT void DeallocateAuthenticode(uint8_t* data) {
+        delete[] data;
     }
 
     LIEF_SYS_EXPORT void EnableLogging(int log_level) {

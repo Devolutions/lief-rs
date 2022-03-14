@@ -12,8 +12,11 @@ use picky::{
     key::{self, PrivateKey},
     pem::{self, Pem},
     x509::{
-        pkcs7::{Pkcs7, Pkcs7Error},
-        wincert::{SHAVariant, WinCertificate, WinCertificateError},
+        pkcs7::{
+            authenticode::{self, AuthenticodeSignature, ShaVariant},
+            Pkcs7, Pkcs7Error,
+        },
+        wincert::{CertificateType, WinCertificate, WinCertificateError},
     },
 };
 use thiserror::Error;
@@ -21,8 +24,6 @@ use widestring::U16CString;
 
 use lief_sys as lief;
 use lief_sys::CResult;
-
-pub use picky::hash::HashAlgorithm;
 
 const LIEF_SYS_OK: u32 = 0;
 
@@ -62,6 +63,8 @@ pub enum LiefError {
     Unknown,
     #[error(transparent)]
     AuthenticodeError(#[from] AuthenticodeError),
+    #[error("Failed to get Authenticode signature data({0:?})")]
+    GetAuthenticodeData(Option<String>),
 }
 
 #[derive(Debug, Error)]
@@ -78,6 +81,8 @@ pub enum AuthenticodeError {
     KeyError(#[from] key::KeyError),
     #[error(transparent)]
     WinCertificateError(#[from] WinCertificateError),
+    #[error(transparent)]
+    PickyAuthenticodeError(#[from] authenticode::AuthenticodeError),
     #[error(transparent)]
     Pkcs7Error(#[from] Pkcs7Error),
 }
@@ -155,26 +160,8 @@ impl Binary {
         ffi_status_code_to_lief_result(status_code)
     }
 
-    // WARNING!!! The  set_authenticode function shouldn't be used with the patching resource section at the same time.
-    // The resource section hash is not included in the file hash set_authenticode as the resource section constructed while building.
-    // Patch resource section first, build it, load the built binary, set Authenticode, and build again.
-
-    pub fn set_authenticode(
-        &self,
-        certificate: Vec<u8>,
-        private_key: Vec<u8>,
-        program_name: Option<String>,
-    ) -> LiefResult<()> {
-        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
-            .map_err(AuthenticodeError::PemError)?;
-        let private_key = PrivateKey::from_pem(&pem).map_err(AuthenticodeError::KeyError)?;
-
-        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(certificate)))
-            .map_err(AuthenticodeError::PemError)?;
-        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::Pkcs7Error)?;
-
+    pub fn get_file_hash_sha256(&self) -> LiefResult<Vec<u8>> {
         let mut hash_len: usize = 0;
-
         let file_hash = unsafe {
             let cresult = lief::GetFileHash(self.handle, &mut hash_len);
 
@@ -193,25 +180,80 @@ impl Binary {
             file_hash
         };
 
-        let wincert = WinCertificate::new(
-            pkcs7_certfile,
-            file_hash.as_ref(),
-            SHAVariant::SHA2_256,
+        Ok(file_hash)
+    }
+
+    // WARNING!!! The  set_authenticode function shouldn't be used with the patching resource section at the same time.
+    // The resource section hash is not included in the file hash set_authenticode as the resource section constructed while building.
+    // Patch resource section first, build it, load the built binary, set Authenticode, and build again.
+
+    pub fn set_authenticode(
+        &self,
+        certificate: Vec<u8>,
+        private_key: Vec<u8>,
+        program_name: Option<String>,
+    ) -> LiefResult<()> {
+        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(private_key)))
+            .map_err(AuthenticodeError::PemError)?;
+        let private_key = PrivateKey::from_pem(&pem).map_err(AuthenticodeError::KeyError)?;
+
+        let pem = Pem::read_from(&mut BufReader::new(Cursor::new(certificate)))
+            .map_err(AuthenticodeError::PemError)?;
+        let pkcs7_certfile = Pkcs7::from_pem(&pem).map_err(AuthenticodeError::Pkcs7Error)?;
+
+        let file_hash = self.get_file_hash_sha256()?;
+
+        let authenticode_signature = AuthenticodeSignature::new(
+            &pkcs7_certfile,
+            file_hash,
+            ShaVariant::SHA2_256,
             &private_key,
             program_name,
         )
-        .map_err(AuthenticodeError::WinCertificateError)?;
+        .map_err(AuthenticodeError::PickyAuthenticodeError)?
+        .to_der()
+        .map_err(AuthenticodeError::PickyAuthenticodeError)?;
+
+        let wincert = WinCertificate::from_certificate(
+            authenticode_signature,
+            CertificateType::WinCertTypePkcsSignedData,
+        );
 
         let data = wincert
             .encode()
             .map_err(AuthenticodeError::WinCertificateError)?;
 
+        self.set_authenticode_data(data)
+    }
+
+    pub fn set_authenticode_data(&self, data: Vec<u8>) -> LiefResult<()> {
         let cresult = unsafe { lief::SetAuthenticode(self.handle, data.as_ptr(), data.len()) };
 
         let status_code = cresult_into_lief_result(cresult)
             .map_err(|err| AuthenticodeError::SetAuthenticodeError(Some(err.to_string())))?;
 
         ffi_status_code_to_lief_result(status_code)
+    }
+
+    pub fn get_authenticode_data(&self) -> LiefResult<Vec<u8>> {
+        let mut data_size = 0;
+        let authenticode_data = unsafe {
+            let cresult = lief::GetAuthenticodeData(self.handle, &mut data_size);
+
+            let data_pointer = cresult_into_lief_result(cresult)
+                .map_err(|err| LiefError::GetAuthenticodeData(Some(err.to_string())))?;
+
+            if data_pointer.is_null() || data_size == 0 {
+                lief::DeallocateAuthenticode(data_pointer);
+                return Err(LiefError::GetAuthenticodeData(None));
+            }
+
+            let authenticode_data = slice::from_raw_parts(data_pointer, data_size).to_vec();
+            lief::DeallocateAuthenticode(data_pointer);
+            authenticode_data
+        };
+
+        Ok(authenticode_data)
     }
 
     pub fn check_signature(&self, checks: VerificationChecks) -> LiefResult<VerificationFlags> {
@@ -422,7 +464,7 @@ pub fn enable_logging(log_level: LogLevel) {
 
 // You should call this function if you don't need logs
 pub fn disable_logging() {
-    unsafe  {
+    unsafe {
         lief::DisableLogging();
     }
 }
@@ -456,20 +498,21 @@ fn cresult_into_lief_result<T>(cresult: CResult<T>) -> LiefResult<T> {
         let CResult { value, .. } = cresult;
         Ok(value)
     } else {
-        let message = unsafe {
-            let message = CStr::from_ptr(cresult.message);
-            lief::DeallocateMessage(cresult.message);
-            message
-        };
+        let message = unsafe { CStr::from_ptr(cresult.message) };
 
-        let message = message
-            .to_str()
+        let message = message.to_str()
             .map_err(|err| LiefError::Other {
                 description: format!("Failed to convert CStr error message to &str: {}", err),
-            })?
-            .to_owned();
+            });
 
-        Err(LiefError::CError(message))
+        let result = match message {
+            Ok(message) => Err(LiefError::CError(message.to_owned())),
+            Err(err) => Err(err),
+        };
+
+        unsafe { lief::DeallocateMessage(cresult.message); }
+
+        result
     }
 }
 

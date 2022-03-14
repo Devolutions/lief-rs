@@ -1,10 +1,14 @@
-use std::env;
 use cmake::Config;
+use std::env;
 
 fn main() {
     let target = env::var("TARGET").unwrap();
     let profile = env::var("PROFILE").unwrap();
-    let cmake_build_type = if profile == "debug" { "Debug" } else { "Release" };
+    let cmake_build_type = if profile == "debug" {
+        "Debug"
+    } else {
+        "Release"
+    };
 
     println!("cargo:rerun-if-changed=CMakeLists.txt");
     println!("cargo:rerun-if-changed=src/liblief.cpp");
@@ -27,7 +31,10 @@ fn main() {
     }
 
     let lief_lib_path = install_dir.join("build").join("LIEF").join("lib");
-    println!("cargo:rustc-link-search=native={}", lief_lib_path.to_str().unwrap());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        lief_lib_path.to_str().unwrap()
+    );
     println!("cargo:rustc-link-lib=static={}", lief_lib_name);
 
     // lief-sys library
@@ -37,7 +44,10 @@ fn main() {
         lib_path = lib_path.join(cmake_build_type);
     }
 
-    println!("cargo:rustc-link-search=native={}", lib_path.to_str().unwrap());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        lib_path.to_str().unwrap()
+    );
     println!("cargo:rustc-link-lib=static=lief-sys");
 
     // link to C++ runtime

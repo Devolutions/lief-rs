@@ -2,7 +2,7 @@
 name = "lief-cwal"
 version = "0.1.0"
 authors = [ "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>" ]
-description = "Idiomatic Rust bindings to Quarkslab's LIEF library"
+description = "Unofficial idiomatic Rust bindings to Quarkslab's LIEF library"
 keywords = ["lief", "elf", "executable", "parser"]
 edition = "2021"
 license = "MIT OR Apache-2.0"

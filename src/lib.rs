@@ -22,8 +22,8 @@ use picky::{
 use thiserror::Error;
 use widestring::U16CString;
 
-use lief_sys as lief;
-use lief_sys::CResult;
+use lief_cwal_sys as lief;
+use lief_cwal_sys::CResult;
 
 const LIEF_SYS_OK: u32 = 0;
 

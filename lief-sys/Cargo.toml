@@ -2,8 +2,12 @@
 name = "lief-cwal-sys"
 version = "0.1.0"
 authors = [ "Alexandr Yusuk <aleksandr.yusuk@apriorit.com>" ]
-edition = "2018"
 build = "build.rs"
+description = "Unofficial low-level unsafe bindings to Quarkslab's LIEF library"
+keywords = ["lief", "elf", "executable", "parser"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Devolutions/lief-rs"
 
 [build-dependencies]
 cmake = "0.1.45"

@@ -18,6 +18,7 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF")
         .static_crt(true)
         .no_build_target(true)
+        .profile(cmake_build_type)
         .build();
 
     // main LIEF library
